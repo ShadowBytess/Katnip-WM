@@ -35,6 +35,7 @@ impl CompositorHandler for Katnip {
                 root = parent;
             }
             if self.window_for_surface(&root).is_some() {
+                crate::grabs::resize_grab::handle_commit(self, &root);
                 self.on_window_commit(&root);
             }
         };

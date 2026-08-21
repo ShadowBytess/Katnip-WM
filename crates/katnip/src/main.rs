@@ -1,11 +1,14 @@
 //! Katnip: a Hyprland-inspired Wayland compositor written in Rust.
 
+mod binds;
+mod grabs;
 mod handlers;
 mod input;
 mod output;
 mod state;
 
 use std::error::Error;
+use std::sync::Arc;
 
 use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::wayland_server::Display;
@@ -23,11 +26,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Katnip starting (nested development mode)");
 
+    let resolved_binds = Arc::new(binds::ResolvedBinds::build(&binds::default_table()));
+
     let mut event_loop: EventLoop<CalloopData> = EventLoop::try_new()?;
     let display: Display<Katnip> = Display::new()?;
     let display_handle = display.handle();
 
-    let state = Katnip::new(&mut event_loop, display)?;
+    let state = Katnip::new(&mut event_loop, display, resolved_binds)?;
     let mut data = CalloopData {
         state,
         display_handle,

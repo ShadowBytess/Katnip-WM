@@ -587,11 +587,13 @@ name = "katnip"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bitflags 2.13.1",
  "katnip-backend",
  "katnip-core",
  "smithay",
  "tracing",
  "tracing-subscriber",
+ "xkbcommon",
 ]
 
 [[package]]

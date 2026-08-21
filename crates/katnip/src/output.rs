@@ -178,9 +178,9 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
 /// Builds one solid-color border element per mapped tile.
 fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<SolidColorRenderElement> {
     let bw = BORDER_WIDTH;
-    let mut elements = Vec::with_capacity(state.tiles.len());
+    let mut elements = Vec::new();
 
-    for window in state.tiles.iter() {
+    for window in state.active_windows() {
         let Some(location) = state.space.element_location(window) else {
             continue;
         };
@@ -196,7 +196,7 @@ fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<SolidColorRenderEle
             Size::from((size.w + 2 * bw, size.h + 2 * bw)).to_physical_precise_round(scale),
         );
 
-        let color = if state.focused.as_ref() == Some(window) {
+        let color = if state.focused_window().is_some_and(|f| &f == window) {
             BORDER_FOCUSED
         } else {
             BORDER_UNFOCUSED

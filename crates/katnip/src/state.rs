@@ -1,8 +1,9 @@
-//! Global compositor state: windows, focus, layout, smithay protocol states.
+//! Global compositor state: workspaces, tiles, focus, layout.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 
 use katnip_core::layout::{self, Rect};
@@ -15,7 +16,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
-use smithay::utils::{IsAlive, Logical, Point, SERIAL_COUNTER};
+use smithay::utils::{IsAlive, Logical, Point, SERIAL_COUNTER, Size};
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
@@ -30,10 +31,45 @@ pub const OUTER_GAP: i32 = 8;
 pub const INNER_GAP: i32 = 8;
 /// Border thickness drawn around each tile (logical px).
 pub const BORDER_WIDTH: i32 = 2;
+/// Number of virtual workspaces (1-9, Hyprland style).
+pub const WORKSPACE_COUNT: usize = 9;
+
+/// The xdg_toplevel state bit used for keyboard-focus indication.
+const ACTIVATED: xdg_toplevel::State = xdg_toplevel::State::Activated;
 
 pub struct CalloopData {
     pub state: Katnip,
     pub display_handle: DisplayHandle,
+}
+
+/// One managed window plus its per-workspace placement data.
+#[derive(Debug, Clone)]
+pub struct Tile {
+    pub window: Window,
+    pub floating: bool,
+    /// Stored position for floating windows so re-arranges do not snap them
+    /// back; `None` until the tile is first placed as a float.
+    pub float_loc: Option<Point<i32, Logical>>,
+}
+
+impl Tile {
+    fn new(window: Window) -> Self {
+        Self {
+            window,
+            floating: false,
+            float_loc: None,
+        }
+    }
+
+    pub fn surface(&self) -> Option<&WlSurface> {
+        self.window.toplevel().map(|t| t.wl_surface())
+    }
+}
+
+#[derive(Default)]
+struct WorkspaceData {
+    tiles: Vec<Tile>,
+    focused: Option<Window>,
 }
 
 pub struct Katnip {
@@ -44,10 +80,9 @@ pub struct Katnip {
 
     /// Spatial view: window positions, stacking, output mapping.
     pub space: Space<Window>,
-    /// All tiled windows in layout order. Windows are "mapped" into the
-    /// space during [`Katnip::arrange`].
-    pub tiles: Vec<Window>,
-    pub focused: Option<Window>,
+    /// Per-workspace tile lists; index 0 = workspace 1.
+    workspaces: Vec<WorkspaceData>,
+    pub active_workspace: usize,
     pub output: Option<Output>,
     pub damage_tracker: Option<OutputDamageTracker>,
     /// Last known geometry size per root surface, used to trigger
@@ -65,12 +100,15 @@ pub struct Katnip {
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
     pub seat: Seat<Self>,
+    /// Resolved keybind table (chord -> action).
+    pub binds: Arc<crate::binds::ResolvedBinds>,
 }
 
 impl Katnip {
     pub fn new(
         event_loop: &mut EventLoop<CalloopData>,
         display: Display<Self>,
+        binds: Arc<crate::binds::ResolvedBinds>,
     ) -> anyhow::Result<Self> {
         let start_time = Instant::now();
         let dh = display.handle();
@@ -96,8 +134,10 @@ impl Katnip {
             display_handle: dh,
             loop_signal,
             space: Space::default(),
-            tiles: Vec::new(),
-            focused: None,
+            workspaces: (0..WORKSPACE_COUNT)
+                .map(|_| WorkspaceData::default())
+                .collect(),
+            active_workspace: 0,
             output: None,
             damage_tracker: None,
             last_sizes: HashMap::new(),
@@ -109,53 +149,103 @@ impl Katnip {
             data_device_state,
             popups,
             seat,
+            binds,
         })
     }
 
-    /// Adds a new window as the last tile and focuses it.
+    // -- workspace / tile accessors --------------------------------------
+
+    fn ws(&self) -> &WorkspaceData {
+        &self.workspaces[self.active_workspace]
+    }
+
+    fn ws_mut(&mut self) -> &mut WorkspaceData {
+        &mut self.workspaces[self.active_workspace]
+    }
+
+    /// All tracked windows across every workspace.
+    fn all_tiles(&self) -> impl Iterator<Item = &Tile> {
+        self.workspaces.iter().flat_map(|ws| ws.tiles.iter())
+    }
+
+    /// Finds the tile owning this root surface, searching every workspace.
+    pub fn tile_for_surface(&self, root: &WlSurface) -> Option<&Tile> {
+        self.all_tiles()
+            .find(|t| t.surface().is_some_and(|s| s == root))
+    }
+
+    /// Legacy-style helper: the tracked Window for this root surface.
+    pub fn window_for_surface(&self, root: &WlSurface) -> Option<&Window> {
+        self.tile_for_surface(root).map(|t| &t.window)
+    }
+
+    /// Windows of the active workspace, for border rendering etc.
+    pub fn active_windows(&self) -> impl Iterator<Item = &Window> {
+        self.ws().tiles.iter().map(|t| &t.window)
+    }
+
+    /// The focused window of the active workspace.
+    pub fn focused_window(&self) -> Option<Window> {
+        self.ws().focused.clone()
+    }
+
+    // -- window lifecycle -------------------------------------------------
+
+    /// Adds a new window as the last tile of the active workspace, focuses
+    /// it, and re-arranges.
     pub fn add_tile(&mut self, window: Window) {
-        info!("new tile ({} total)", self.tiles.len() + 1);
-        self.focused = Some(window.clone());
-        self.tiles.push(window);
+        info!(
+            "new tile on workspace {} ({} total)",
+            self.active_workspace + 1,
+            self.ws().tiles.len() + 1
+        );
+        self.ws_mut().focused = Some(window.clone());
+        self.ws_mut().tiles.push(Tile::new(window));
         self.arrange_force(false);
     }
 
-    /// Removes dead windows and refills focus; re-arranges if changed.
+    /// Removes dead windows everywhere, refills active focus, re-arranges.
     pub fn cleanup_dead(&mut self) {
-        let before = self.tiles.len();
-        self.tiles.retain(|w| w.alive());
-        if self.tiles.len() == before {
-            return;
-        }
-        debug!("removed {} dead tile(s)", before - self.tiles.len());
-        if let Some(focused) = &self.focused {
-            if !focused.alive() {
-                self.focused = None;
+        let mut removed = 0usize;
+        for ws in &mut self.workspaces {
+            let before = ws.tiles.len();
+            ws.tiles.retain(|tile| tile.window.alive());
+            removed += before - ws.tiles.len();
+            if let Some(focused) = &ws.focused {
+                if !focused.alive() {
+                    ws.focused = None;
+                }
             }
         }
-        let next_focus = self
-            .focused
-            .is_none()
-            .then(|| self.tiles.last().cloned())
-            .flatten();
-        match next_focus {
-            Some(window) => self.focus_window(Some(&window)),
-            None => self.update_activated_states(),
+        if removed == 0 {
+            return;
         }
-        // Drop stale size entries so a replacement surface maps cleanly.
-        let live_surfaces: Vec<WlSurface> = self
-            .tiles
-            .iter()
-            .filter_map(|w| w.toplevel().map(|t| t.wl_surface().clone()))
+        debug!("removed {removed} dead tile(s)");
+
+        let active_idx = self.active_workspace;
+        if self.workspaces[active_idx].focused.is_none() {
+            let next = self.workspaces[active_idx]
+                .tiles
+                .last()
+                .map(|t| t.window.clone());
+            self.focus_window(next.as_ref());
+        } else {
+            self.update_activated_states();
+        }
+
+        // Drop stale size entries so replacement surfaces map cleanly.
+        let live: Vec<WlSurface> = self
+            .all_tiles()
+            .filter_map(|t| t.surface().cloned())
             .collect();
-        self.last_sizes
-            .retain(|surface, _| live_surfaces.contains(surface));
+        self.last_sizes.retain(|surface, _| live.contains(surface));
         self.arrange_force(false);
     }
 
-    /// Focuses a window: keyboard focus + Activated state + border recolor.
+    /// Focuses a window (must belong to the active workspace): keyboard
+    /// focus, Activated state, border recolor.
     pub fn focus_window(&mut self, window: Option<&Window>) {
-        self.focused = window.cloned();
+        self.ws_mut().focused = window.cloned();
 
         let serial = SERIAL_COUNTER.next_serial();
         let surface = window
@@ -167,13 +257,13 @@ impl Katnip {
         self.update_activated_states();
     }
 
-    /// Pushes the Activated xdg state to every toplevel to match `focused`.
+    /// Pushes the Activated xdg state to every active-workspace toplevel.
     pub fn update_activated_states(&mut self) {
-        for w in &self.tiles {
-            let Some(toplevel) = w.toplevel() else {
+        for tile in &self.ws().tiles {
+            let Some(toplevel) = tile.window.toplevel() else {
                 continue;
             };
-            let active = self.focused.as_ref() == Some(w);
+            let active = self.ws().focused.as_ref() == Some(&tile.window);
             let is_active = toplevel.current_state().states.contains(ACTIVATED);
             if is_active != active {
                 toplevel.with_pending_state(|state| {
@@ -188,13 +278,14 @@ impl Katnip {
         }
     }
 
-    /// Recomputes tile geometry from the dwindling layout and applies it:
-    /// positions windows in the space, requests client sizes, draws borders.
+    // -- layout -----------------------------------------------------------
+
+    /// Recomputes tile geometry from the dwindling layout and applies it.
     ///
-    /// `force_assert` re-sends sized configures even when the client has
-    /// already acked the right size - needed once right after first map,
-    /// because some toolkits ack pre-map configures but map at their own
-    /// preferred size anyway.
+    /// `force_assert` re-sends sized configures even when the client already
+    /// acked the right size - needed once right after first map, because
+    /// some toolkits ack pre-map configures but open at their own preferred
+    /// size anyway.
     pub fn arrange_force(&mut self, force_assert: bool) {
         let Some(output) = self.output.clone() else {
             return;
@@ -209,43 +300,88 @@ impl Katnip {
             (output_geo.size.w - 2 * OUTER_GAP).max(0),
             (output_geo.size.h - 2 * OUTER_GAP).max(0),
         );
-        let rects = layout::dwindle(usable, self.tiles.len(), INNER_GAP);
+
+        let active = self.active_workspace;
+        let tiled_count = self.workspaces[active]
+            .tiles
+            .iter()
+            .filter(|t| !t.floating)
+            .count();
+        let rects = layout::dwindle(usable, tiled_count, INNER_GAP);
         debug!(
             output_geo = ?(output_geo.size.w, output_geo.size.h),
-            tiles = self.tiles.len(),
+            ws = active + 1,
+            tiled = tiled_count,
             "arrange"
         );
+        let mut rect_iter = rects.iter();
 
-        for (window, tile) in self.tiles.iter().zip(rects.iter()) {
-            let Some(toplevel) = window.toplevel() else {
-                continue;
-            };
-            let inner = tile.shrink(BORDER_WIDTH);
+        for i in 0..self.workspaces[active].tiles.len() {
+            let tile = &mut self.workspaces[active].tiles[i];
+            let window = tile.window.clone();
 
-            // Ask the client to match its tile size (xdg size-honoring
-            // configure). Guarded so we do not configure-loop.
-            let desired = smithay::utils::Size::from((inner.w.max(1), inner.h.max(1)));
-            let declared_ok = toplevel.current_state().size == Some(desired);
-            if force_assert || !declared_ok {
-                debug!(?desired, "configuring tile size");
-                toplevel.with_pending_state(|state| {
-                    state.size = Some(desired);
+            if tile.floating {
+                // Floating: keep stored position, assign a centered default
+                // on first placement, never force sizes.
+                let size = {
+                    let geo = window.geometry().size;
+                    if geo.w <= 0 || geo.h <= 0 {
+                        Size::from((640, 480))
+                    } else {
+                        geo
+                    }
+                };
+                let loc = *tile.float_loc.get_or_insert_with(|| {
+                    Point::from((
+                        usable.x + (usable.w - size.w).max(0) / 2,
+                        usable.y + (usable.h - size.h).max(0) / 2,
+                    ))
                 });
-                toplevel.send_pending_configure();
-            }
+                self.space.map_element(window, loc, false);
+            } else {
+                let Some(tile_rect) = rect_iter.next() else {
+                    continue;
+                };
+                let inner = tile_rect.shrink(BORDER_WIDTH);
 
-            self.space
-                .map_element(window.clone(), Point::from((inner.x, inner.y)), false);
+                let Some(toplevel) = window.toplevel() else {
+                    continue;
+                };
+                // Ask the client to match its tile size (xdg size-honoring
+                // configure). Guarded so we do not configure-loop.
+                let desired = Size::from((inner.w.max(1), inner.h.max(1)));
+                let declared_ok = toplevel.current_state().size == Some(desired);
+                if force_assert || !declared_ok {
+                    debug!(?desired, "configuring tile size");
+                    toplevel.with_pending_state(|state| {
+                        state.size = Some(desired);
+                    });
+                    toplevel.send_pending_configure();
+                }
+
+                self.space
+                    .map_element(window, Point::from((inner.x, inner.y)), false);
+            }
+        }
+
+        // Floats render above tiled windows.
+        for tile in &self.workspaces[active].tiles {
+            if tile.floating {
+                self.space.raise_element(&tile.window, true);
+            }
         }
 
         self.update_activated_states();
     }
 
-    /// Called on toplevel commits: re-arranges when a window's size changes.
+    /// Called on toplevel commits: records sizes and re-arranges on change.
+    /// Handles windows on any workspace; only active-workspace changes
+    /// trigger layout work.
     pub fn on_window_commit(&mut self, root: &WlSurface) {
         let Some(window) = self.window_for_surface(root).cloned() else {
             return;
         };
+
         window.on_commit();
 
         let initial_configure_sent = smithay::wayland::compositor::with_states(root, |states| {
@@ -269,9 +405,7 @@ impl Katnip {
         let size = window.geometry().size;
         let entry = (size.w, size.h);
         if self.last_sizes.get(root) != Some(&entry) {
-            // Transition from unmapped/degenerate to a real geometry = the
-            // window just mapped; some toolkits ack pre-map configures but
-            // open at their preferred size, so force one re-assert.
+            // Transition from unmapped/degenerate to real geometry = mapped.
             let was_unmapped = self
                 .last_sizes
                 .get(root)
@@ -279,16 +413,152 @@ impl Katnip {
             let first_map = was_unmapped && !size.is_empty();
             debug!(?size, first_map, "tile resized, re-arranging");
             self.last_sizes.insert(root.clone(), entry);
-            self.arrange_force(first_map);
+            let on_active = self
+                .tile_for_surface(root)
+                .is_some_and(|t| self.active_windows().any(|w| w == &t.window));
+            if on_active {
+                self.arrange_force(first_map);
+            }
         }
     }
 
-    /// Finds the tracked window whose toplevel owns this root surface.
-    pub fn window_for_surface(&self, root: &WlSurface) -> Option<&Window> {
-        self.tiles
-            .iter()
-            .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == root))
+    // -- workspaces -------------------------------------------------------
+
+    /// Switches the visible workspace, remapping clients as needed.
+    pub fn switch_workspace(&mut self, idx: usize) {
+        assert!(idx < WORKSPACE_COUNT);
+        if idx == self.active_workspace {
+            return;
+        }
+        debug!(
+            from = self.active_workspace + 1,
+            to = idx + 1,
+            "switching workspace"
+        );
+
+        let windows_to_unmap: Vec<Window> =
+            self.ws().tiles.iter().map(|t| t.window.clone()).collect();
+        for window in windows_to_unmap {
+            self.space.unmap_elem(&window);
+        }
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+        }
+
+        self.active_workspace = idx;
+        self.arrange_force(true);
+
+        if let Some(focused) = self.ws().focused.clone() {
+            self.focus_window(Some(&focused));
+        }
     }
+
+    /// Moves the focused window to another workspace (it disappears from
+    /// view unless target == active).
+    pub fn move_focused_to_workspace(&mut self, idx: usize) {
+        assert!(idx < WORKSPACE_COUNT);
+        if idx == self.active_workspace {
+            return;
+        }
+        let Some(focused) = self.ws().focused.clone() else {
+            return;
+        };
+        let Some(pos) = self.ws().tiles.iter().position(|t| t.window == focused) else {
+            return;
+        };
+        let mut tile = self.ws_mut().tiles.remove(pos);
+        tile.float_loc = None;
+        tile.floating = false;
+        self.workspaces[idx].tiles.push(tile);
+        self.workspaces[idx].focused = None;
+        info!("moved window to workspace {}", idx + 1);
+
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+        }
+        self.ws_mut().focused = None;
+        self.update_activated_states();
+        self.arrange_force(false);
+    }
+
+    // -- floating ---------------------------------------------------------
+
+    /// Flips the focused window between tiled and floating.
+    pub fn toggle_focused_floating(&mut self) {
+        let Some(focused) = self.ws().focused.clone() else {
+            return;
+        };
+        let Some(pos) = self.ws().tiles.iter().position(|t| t.window == focused) else {
+            return;
+        };
+
+        let now_floating = !self.ws().tiles[pos].floating;
+        self.ws_mut().tiles[pos].floating = now_floating;
+        info!(floating = now_floating, "toggled floating");
+
+        if now_floating {
+            // Place under current pointer, clamped to the usable area.
+            let loc = self.pointer_location();
+            let size = focused.geometry().size;
+            let w = if size.w > 0 { size.w } else { 640 };
+            let h = if size.h > 0 { size.h } else { 480 };
+            let clamped = Point::from((
+                (loc.x as i32 - w / 2).max(OUTER_GAP),
+                (loc.y as i32 - h / 2).max(OUTER_GAP),
+            ));
+            self.ws_mut().tiles[pos].float_loc = Some(clamped);
+        } else {
+            // Back to tiling: send to the end of the order, forget position.
+            let tile = self.ws_mut().tiles.remove(pos);
+            self.ws_mut().tiles.push(tile);
+        }
+        self.arrange_force(false);
+    }
+
+    /// Current pointer position in logical coordinates.
+    pub fn pointer_location(&self) -> Point<f64, Logical> {
+        self.seat
+            .get_pointer()
+            .map(|p| p.current_location())
+            .unwrap_or_default()
+    }
+
+    /// Whether this window is currently floating.
+    pub fn is_floating(&self, window: &Window) -> bool {
+        self.ws()
+            .tiles
+            .iter()
+            .find(|t| &t.window == window)
+            .is_some_and(|t| t.floating)
+    }
+
+    /// Records a floating window's live position (called during move grabs).
+    pub fn update_float_loc(&mut self, window: &Window, loc: Point<i32, Logical>) {
+        for ws in &mut self.workspaces {
+            if let Some(tile) = ws.tiles.iter_mut().find(|t| &t.window == window) {
+                if tile.floating {
+                    tile.float_loc = Some(loc);
+                }
+                return;
+            }
+        }
+    }
+
+    /// Converts a tiled window to floating without moving it to pointer.
+    pub fn ensure_floating_at(&mut self, window: &Window, loc: Point<i32, Logical>) {
+        let Some(pos) = self.ws().tiles.iter().position(|t| &t.window == window) else {
+            return;
+        };
+        if !self.ws().tiles[pos].floating {
+            self.ws_mut().tiles[pos].floating = true;
+            self.ws_mut().tiles[pos].float_loc = Some(loc);
+            self.arrange_force(false);
+        }
+    }
+
+    // -- actions ----------------------------------------------------------
 
     /// Topmost surface under this position for pointer purposes.
     pub fn surface_under(
@@ -306,7 +576,7 @@ impl Katnip {
 
     /// Closes the focused window via its toplevel close request.
     pub fn close_focused(&mut self) {
-        if let Some(window) = &self.focused {
+        if let Some(window) = &self.ws().focused {
             info!("closing focused window");
             if let Some(toplevel) = window.toplevel() {
                 toplevel.send_close();
@@ -314,7 +584,7 @@ impl Katnip {
         }
     }
 
-    /// Demo terminal launcher until the M2/M3 keybind+config engine exists.
+    /// Demo terminal launcher until config-driven exec lands in M3.
     pub fn spawn_terminal(&mut self) {
         let candidates: Vec<String> = std::env::var("KATNIP_TERMINAL")
             .map(|t| vec![t])
@@ -336,9 +606,6 @@ impl Katnip {
         warn!("no terminal found (tried KATNIP_TERMINAL, lumiterm, foot, alacritty, kitty)");
     }
 }
-
-/// The xdg_toplevel state bit used for keyboard-focus indication.
-const ACTIVATED: xdg_toplevel::State = xdg_toplevel::State::Activated;
 
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
@@ -364,7 +631,7 @@ fn init_wayland_listener(
     loop_handle.insert_source(listening_socket, move |client_stream, _, state| {
         if let Err(err) = state
             .display_handle
-            .insert_client(client_stream, std::sync::Arc::new(ClientState::default()))
+            .insert_client(client_stream, Arc::new(ClientState::default()))
         {
             warn!(%err, "failed to insert new client");
         }
