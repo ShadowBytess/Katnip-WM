@@ -1,80 +1,23 @@
-//! Nested winit backend: renders a test background and echoes input events.
+//! Nested winit backend.
 //!
-//! This is the M0 proof-of-life loop. It intentionally contains no Wayland
-//! globals yet; xdg_shell surface management arrives in M1 on top of this
-//! render/dispatch structure.
+//! Provides the graphics backend and winit event source as separate pieces
+//! so the compositor crate can insert the event source into its own calloop
+//! loop alongside the Wayland display.
 
-use smithay::backend::SwapBuffersError;
-use smithay::backend::renderer::Color32F;
-use smithay::backend::renderer::damage::{Error as DamageTrackerError, OutputDamageTracker};
-use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::winit::{self, WinitEvent};
-use smithay::reexports::winit::platform::pump_events::PumpStatus;
-use smithay::utils::{Physical, Scale, Transform};
-use tracing::{debug, error, info, warn};
+use smithay::backend::winit::{WinitEventLoop, WinitGraphicsBackend};
 
-/// Deep charcoal with a hint of green, so the window is obviously Katnip.
-const CLEAR_COLOR: Color32F = Color32F::new(0.086, 0.106, 0.098, 1.0);
-
-type PhysSize = smithay::utils::Size<i32, Physical>;
-
-fn make_tracker(size: PhysSize, scale: f64) -> OutputDamageTracker {
-    OutputDamageTracker::new(size, Scale::from(scale.max(1.0)), Transform::Normal)
+/// The nested backend: a window in the host session plus its event stream.
+pub struct NestedBackend {
+    /// Renders into and presents on the host window.
+    pub graphics: WinitGraphicsBackend<GlesRenderer>,
+    /// Calloop event source delivering `WinitEvent`s.
+    pub events: WinitEventLoop,
 }
 
-pub fn run() -> anyhow::Result<()> {
-    let (mut backend, mut winit) = winit::init::<GlesRenderer>()
+/// Initializes the nested backend inside the current Wayland/X11 session.
+pub fn init_nested() -> anyhow::Result<NestedBackend> {
+    let (graphics, events) = smithay::backend::winit::init::<GlesRenderer>()
         .map_err(|err| anyhow::anyhow!("failed to initialize winit backend: {err}"))?;
-
-    let size: PhysSize = backend.window_size();
-    let scale = backend.scale_factor();
-    info!(?size, scale, "winit backend initialized");
-
-    let mut damage_tracker = make_tracker(size, scale);
-    let elements: Vec<SolidColorRenderElement> = Vec::new();
-
-    loop {
-        let status = winit.dispatch_new_events(|event| match event {
-            WinitEvent::Input(input) => debug!(?input, "input"),
-            WinitEvent::Resized { .. } => {
-                debug!("host window resized");
-                damage_tracker = make_tracker(backend.window_size(), backend.scale_factor());
-            }
-            _ => {}
-        });
-
-        if let PumpStatus::Exit(code) = status {
-            info!(code, "host session closed the window");
-            return Ok(());
-        }
-
-        // age 0 = always full redraw; fine for a solid background.
-        let render_res = backend.bind().and_then(|(renderer, mut framebuffer)| {
-            damage_tracker
-                .render_output(renderer, &mut framebuffer, 0, &elements, CLEAR_COLOR)
-                .map(|result| result.damage)
-                .map_err(|err| match err {
-                    DamageTrackerError::Rendering(err) => err.into(),
-                    other => SwapBuffersError::ContextLost(Box::new(std::io::Error::other(
-                        format!("damage tracking failure: {other:?}"),
-                    ))),
-                })
-        });
-
-        match render_res {
-            Ok(damage) => {
-                if let Some(damage) = damage {
-                    if let Err(err) = backend.submit(Some(damage)) {
-                        warn!("failed to submit buffer: {err}");
-                    }
-                }
-            }
-            Err(SwapBuffersError::ContextLost(err)) => {
-                error!("GPU context lost: {err}");
-                anyhow::bail!("GPU context lost: {err}");
-            }
-            Err(err) => warn!("rendering error: {err}"),
-        }
-    }
+    Ok(NestedBackend { graphics, events })
 }

@@ -4,9 +4,9 @@
 //! existing Wayland/X11 session. Hardware DRM/libinput/udev backends are
 //! added in a later milestone (M8) behind the same entry point.
 
-mod nested;
+pub mod nested;
 
-/// Runs Katnip nested inside the current session (Wayland or X11) via winit.
-pub fn run_nested() -> anyhow::Result<()> {
-    nested::run()
-}
+pub use nested::{NestedBackend, init_nested};
+
+/// Convenience re-export of the renderer type used by all backends.
+pub type KatnipRenderer = smithay::backend::renderer::gles::GlesRenderer;
