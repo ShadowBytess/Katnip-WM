@@ -117,15 +117,15 @@ impl Katnip {
         info!("new tile ({} total)", self.tiles.len() + 1);
         self.focused = Some(window.clone());
         self.tiles.push(window);
-        self.arrange();
+        self.arrange_force(false);
     }
 
-    /// Removes dead windows; returns true if the tile list changed.
-    pub fn cleanup_dead(&mut self) -> bool {
+    /// Removes dead windows and refills focus; re-arranges if changed.
+    pub fn cleanup_dead(&mut self) {
         let before = self.tiles.len();
         self.tiles.retain(|w| w.alive());
         if self.tiles.len() == before {
-            return false;
+            return;
         }
         debug!("removed {} dead tile(s)", before - self.tiles.len());
         if let Some(focused) = &self.focused {
@@ -133,12 +133,24 @@ impl Katnip {
                 self.focused = None;
             }
         }
-        if self.focused.is_none() {
-            if let Some(last) = self.tiles.last().cloned() {
-                self.focus_window(Some(&last));
-            }
+        let next_focus = self
+            .focused
+            .is_none()
+            .then(|| self.tiles.last().cloned())
+            .flatten();
+        match next_focus {
+            Some(window) => self.focus_window(Some(&window)),
+            None => self.update_activated_states(),
         }
-        true
+        // Drop stale size entries so a replacement surface maps cleanly.
+        let live_surfaces: Vec<WlSurface> = self
+            .tiles
+            .iter()
+            .filter_map(|w| w.toplevel().map(|t| t.wl_surface().clone()))
+            .collect();
+        self.last_sizes
+            .retain(|surface, _| live_surfaces.contains(surface));
+        self.arrange_force(false);
     }
 
     /// Focuses a window: keyboard focus + Activated state + border recolor.
@@ -178,7 +190,12 @@ impl Katnip {
 
     /// Recomputes tile geometry from the dwindling layout and applies it:
     /// positions windows in the space, requests client sizes, draws borders.
-    pub fn arrange(&mut self) {
+    ///
+    /// `force_assert` re-sends sized configures even when the client has
+    /// already acked the right size - needed once right after first map,
+    /// because some toolkits ack pre-map configures but map at their own
+    /// preferred size anyway.
+    pub fn arrange_force(&mut self, force_assert: bool) {
         let Some(output) = self.output.clone() else {
             return;
         };
@@ -208,7 +225,8 @@ impl Katnip {
             // Ask the client to match its tile size (xdg size-honoring
             // configure). Guarded so we do not configure-loop.
             let desired = smithay::utils::Size::from((inner.w.max(1), inner.h.max(1)));
-            if toplevel.current_state().size != Some(desired) {
+            let declared_ok = toplevel.current_state().size == Some(desired);
+            if force_assert || !declared_ok {
                 debug!(?desired, "configuring tile size");
                 toplevel.with_pending_state(|state| {
                     state.size = Some(desired);
@@ -251,9 +269,17 @@ impl Katnip {
         let size = window.geometry().size;
         let entry = (size.w, size.h);
         if self.last_sizes.get(root) != Some(&entry) {
-            debug!(?size, "tile resized, re-arranging");
+            // Transition from unmapped/degenerate to a real geometry = the
+            // window just mapped; some toolkits ack pre-map configures but
+            // open at their preferred size, so force one re-assert.
+            let was_unmapped = self
+                .last_sizes
+                .get(root)
+                .is_none_or(|&(w, h)| w == 0 || h == 0);
+            let first_map = was_unmapped && !size.is_empty();
+            debug!(?size, first_map, "tile resized, re-arranging");
             self.last_sizes.insert(root.clone(), entry);
-            self.arrange();
+            self.arrange_force(first_map);
         }
     }
 

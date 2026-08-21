@@ -63,7 +63,7 @@ pub fn init_winit(
         state.output = Some(output.clone());
         state.damage_tracker =
             Some(smithay::backend::renderer::damage::OutputDamageTracker::from_output(&output));
-        state.arrange();
+        state.arrange_force(false);
     }
 
     // Clients spawned by Katnip should connect to our socket by default.
@@ -89,7 +89,7 @@ pub fn init_winit(
                         None,
                     );
                 }
-                data.state.arrange();
+                data.state.arrange_force(false);
             }
             WinitEvent::Input(event) => data.state.process_input_event(event),
             WinitEvent::Redraw => redraw(&mut graphics, &mut data.state),
