@@ -1,0 +1,13 @@
+[package]
+name = "katnip-plugins"
+description = "Katnip plugin host: native .so loader and Rhai runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
