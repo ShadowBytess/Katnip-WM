@@ -121,6 +121,10 @@ pub struct Katnip {
     pub terminal: String,
     /// Built-in status bar (owns textures; render via [`Katnip::bar`]).
     pub bar: crate::bar::Bar,
+    /// Rhai script plugins; `None` when none loaded.
+    pub plugins: Option<katnip_plugins::script::ScriptHost>,
+    /// Native `.so` plugins; kept loaded for the process lifetime.
+    pub native_plugins: Vec<katnip_plugins::native::NativePlugin>,
 }
 
 impl Katnip {
@@ -129,6 +133,8 @@ impl Katnip {
         display: Display<Self>,
         binds: Arc<crate::binds::ResolvedBinds>,
         config: &katnip_config::Config,
+        plugins: Option<katnip_plugins::script::ScriptHost>,
+        native_plugins: Vec<katnip_plugins::native::NativePlugin>,
     ) -> anyhow::Result<Self> {
         let start_time = Instant::now();
         let dh = display.handle();
@@ -177,6 +183,8 @@ impl Katnip {
             },
             terminal: config.general.terminal.clone(),
             bar: crate::bar::Bar::new(config.bar.enabled, config.bar.height),
+            plugins,
+            native_plugins,
         })
     }
 
@@ -295,7 +303,11 @@ impl Katnip {
             self.ws().tiles.len() + 1
         );
         self.ws_mut().focused = Some(window.clone());
-        self.ws_mut().tiles.push(Tile::new(window));
+        self.ws_mut().tiles.push(Tile::new(window.clone()));
+        let title_for_plugins = self.focused_title().unwrap_or_default();
+        if let Some(host) = self.plugins.as_mut() {
+            host.fire_window_open(&title_for_plugins, false);
+        }
         self.arrange_force(false);
     }
 

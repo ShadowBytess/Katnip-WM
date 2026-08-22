@@ -1,0 +1,1 @@
+/home/_lumi/Projects/Katnip-wm/examples/plugins/native-example/target/release/libkatnip_native_example.so: /home/_lumi/Projects/Katnip-wm/crates/katnip-api/src/lib.rs /home/_lumi/Projects/Katnip-wm/examples/plugins/native-example/src/lib.rs

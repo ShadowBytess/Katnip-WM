@@ -37,6 +37,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             katnip_config::Config::with_defaults()
         }
     };
+    // Plugins load before binds resolve so they can register chords.
+    let plugin_dir = katnip_plugins::plugin_dir();
+    let (plugin_host, mut plugin_binds, plugin_errors) =
+        katnip_plugins::load_scripts(&plugin_dir);
+    let (native_plugins, native_binds, native_errors) =
+        katnip_plugins::load_natives(&plugin_dir);
+    for err in plugin_errors.iter().chain(native_errors.iter()) {
+        warn!("plugin: {err}");
+    }
+    plugin_binds.extend(native_binds);
+    info!(
+        "loaded {} rhai + {} native plugin(s), {} plugin bind(s)",
+        plugin_host.plugins.len(),
+        native_plugins.len(),
+        plugin_binds.len()
+    );
+
     let table = match config.keybind_table() {
         Ok(table) if !table.is_empty() => table,
         Ok(_) => {
@@ -50,6 +67,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(err.into());
         }
     };
+    let mut table = table;
+    for (spec, action_str) in &plugin_binds {
+        match katnip_config::parse_action(action_str) {
+            Some(action) => {
+                if let Err(err) = table.insert(spec, action) {
+                    warn!(%spec, %action_str, "{err}");
+                }
+            }
+            None => warn!(%spec, %action_str, "plugin registered unknown action"),
+        }
+    }
     let resolved_binds = Arc::new(binds::ResolvedBinds::build(&table));
     info!("loaded {} keybinds", resolved_binds.len());
 
@@ -65,7 +93,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let display: Display<Katnip> = Display::new()?;
     let display_handle = display.handle();
 
-    let state = Katnip::new(&mut event_loop, display, resolved_binds, &config)?;
+    let state = Katnip::new(
+        &mut event_loop,
+        display,
+        resolved_binds,
+        &config,
+        Some(plugin_host),
+        native_plugins,
+    )?;
     let mut data = CalloopData {
         state,
         display_handle,

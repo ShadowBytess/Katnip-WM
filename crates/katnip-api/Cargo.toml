@@ -8,6 +8,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+libc.workspace = true
 
 [lints]
 workspace = true

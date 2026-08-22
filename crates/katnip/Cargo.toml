@@ -19,6 +19,7 @@ bitflags.workspace = true
 katnip-backend = { path = "../katnip-backend" }
 katnip-config = { path = "../katnip-config" }
 katnip-core = { path = "../katnip-core" }
+katnip-plugins = { path = "../katnip-plugins" }
 smithay.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

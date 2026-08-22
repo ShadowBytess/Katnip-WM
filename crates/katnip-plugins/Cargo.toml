@@ -8,6 +8,13 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+katnip-api = { path = "../katnip-api" }
+katnip-config = { path = "../katnip-config" }
+katnip-core = { path = "../katnip-core" }
+libloading.workspace = true
+libc.workspace = true
+rhai.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true
