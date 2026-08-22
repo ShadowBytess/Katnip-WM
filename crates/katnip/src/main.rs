@@ -39,10 +39,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     // Plugins load before binds resolve so they can register chords.
     let plugin_dir = katnip_plugins::plugin_dir();
-    let (plugin_host, mut plugin_binds, plugin_errors) =
-        katnip_plugins::load_scripts(&plugin_dir);
-    let (native_plugins, native_binds, native_errors) =
-        katnip_plugins::load_natives(&plugin_dir);
+    let (plugin_host, mut plugin_binds, plugin_errors) = katnip_plugins::load_scripts(&plugin_dir);
+    let (native_plugins, native_binds, native_errors) = katnip_plugins::load_natives(&plugin_dir);
     for err in plugin_errors.iter().chain(native_errors.iter()) {
         warn!("plugin: {err}");
     }

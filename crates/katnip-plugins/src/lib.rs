@@ -79,7 +79,11 @@ fn validate_chord_and_action(spec: &str, action: &str) -> Result<(), String> {
 /// validated the same way script binds are.
 pub fn load_natives(
     dir: &Path,
-) -> (Vec<native::NativePlugin>, Vec<(String, String)>, Vec<String>) {
+) -> (
+    Vec<native::NativePlugin>,
+    Vec<(String, String)>,
+    Vec<String>,
+) {
     let mut plugins = Vec::new();
     let mut binds = Vec::new();
     let mut errors = Vec::new();

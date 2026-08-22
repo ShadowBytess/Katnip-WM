@@ -4,6 +4,7 @@ mod compositor;
 mod xdg_shell;
 
 use smithay::input::{Seat, SeatHandler, SeatState};
+use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::output::OutputHandler;
@@ -12,6 +13,8 @@ use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
     set_data_device_focus,
 };
+use smithay::wayland::shell::xdg::ToplevelSurface;
+use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
 use smithay::{delegate_data_device, delegate_output, delegate_seat};
 
 use crate::state::Katnip;
@@ -61,3 +64,35 @@ delegate_data_device!(Katnip);
 impl OutputHandler for Katnip {}
 
 delegate_output!(Katnip);
+
+//
+// Xdg Decoration
+//
+
+fn negotiate_client_side(toplevel: &ToplevelSurface) {
+    // Katnip draws its own thin borders; clients keep CSD either way.
+    toplevel.with_pending_state(|state| {
+        state.decoration_mode = Some(zxdg_toplevel_decoration_v1::Mode::ClientSide);
+    });
+    toplevel.send_pending_configure();
+}
+
+impl XdgDecorationHandler for Katnip {
+    fn new_decoration(&mut self, toplevel: ToplevelSurface) {
+        negotiate_client_side(&toplevel);
+    }
+
+    fn request_mode(
+        &mut self,
+        toplevel: ToplevelSurface,
+        _mode: zxdg_toplevel_decoration_v1::Mode,
+    ) {
+        negotiate_client_side(&toplevel);
+    }
+
+    fn unset_mode(&mut self, toplevel: ToplevelSurface) {
+        negotiate_client_side(&toplevel);
+    }
+}
+
+smithay::delegate_xdg_decoration!(Katnip);

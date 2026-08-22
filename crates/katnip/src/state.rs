@@ -109,6 +109,10 @@ pub struct Katnip {
     /// Owns the xdg_output global created at startup.
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
+    /// xdg_decoration negotiation state (we always answer client-side).
+    /// Held for the global's lifetime; read by the delegate macro.
+    #[allow(dead_code)]
+    pub decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState,
     pub seat_state: SeatState<Self>,
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
@@ -124,6 +128,7 @@ pub struct Katnip {
     /// Rhai script plugins; `None` when none loaded.
     pub plugins: Option<katnip_plugins::script::ScriptHost>,
     /// Native `.so` plugins; kept loaded for the process lifetime.
+    #[allow(dead_code)]
     pub native_plugins: Vec<katnip_plugins::native::NativePlugin>,
 }
 
@@ -143,6 +148,8 @@ impl Katnip {
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
+        let decoration_state =
+            smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh);
         let mut seat_state = SeatState::new();
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let popups = PopupManager::default();
@@ -171,6 +178,7 @@ impl Katnip {
             xdg_shell_state,
             shm_state,
             output_manager_state,
+            decoration_state,
             seat_state,
             data_device_state,
             popups,
@@ -558,8 +566,15 @@ impl Katnip {
         self.active_workspace = idx;
         self.arrange_force(true);
 
-        if let Some(focused) = self.ws().focused.clone() {
-            self.focus_window(Some(&focused));
+        match self.ws().focused.clone() {
+            Some(focused) => self.focus_window(Some(&focused)),
+            None => {
+                // Arriving at a workspace nobody focused yet: take the last
+                // tile so keybinds act immediately.
+                if let Some(last) = self.ws().tiles.last().map(|t| t.window.clone()) {
+                    self.focus_window(Some(&last));
+                }
+            }
         }
     }
 
