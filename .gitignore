@@ -1,3 +1,4 @@
 /target
 *.swp
 .DS_Store
+examples/plugins/native-example/target/
