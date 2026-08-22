@@ -25,6 +25,8 @@ smithay = { version = "0.7", default-features = false, features = [
 ] }
 xkbcommon = { version = "0.8", features = ["wayland"] }
 bitflags = "2"
+fontdue = "0.8"
+chrono = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2.0"

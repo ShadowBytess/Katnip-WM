@@ -7,6 +7,7 @@ use smithay::backend::SwapBuffersError;
 use smithay::backend::renderer::Color32F;
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::{Id, Kind};
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::winit::{WinitEvent, WinitGraphicsBackend};
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
@@ -14,6 +15,7 @@ use smithay::reexports::calloop::EventLoop;
 use smithay::utils::{Point, Rectangle, Scale, Size, Transform};
 use tracing::{debug, error, info, warn};
 
+use crate::bar::KatnipElements;
 use crate::state::{CalloopData, Katnip};
 
 /// Katnip accent teal for the focused tile border.
@@ -111,17 +113,34 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
         return;
     };
 
-    let scale = Scale::from(output.current_scale().fractional_scale());
-    let borders = border_elements(state, scale);
+    let scale_f64 = output.current_scale().fractional_scale();
+    let scale = Scale::from(scale_f64);
+    let mut custom = border_elements(state, scale);
+    let bar_info = crate::bar::BarInfo::from_state(state);
+    let window_size_logical = graphics.window_size().to_f64().to_logical(scale);
 
     // Render first (borrowing the damage tracker), then submit after the
     // renderer/framebuffer borrows of `graphics` have ended.
     let frame: Result<Option<Vec<Rectangle<i32, smithay::utils::Physical>>>, String> = {
-        let Some(damage_tracker) = state.damage_tracker.as_mut() else {
+        // Split state borrows so the bar and damage tracker can coexist.
+        let Katnip {
+            bar,
+            damage_tracker,
+            ..
+        } = state;
+        let Some(damage_tracker) = damage_tracker.as_mut() else {
             return;
         };
         match graphics.bind() {
             Ok((renderer, mut framebuffer)) => {
+                if bar.enabled {
+                    custom.extend(bar.elements(
+                        renderer,
+                        window_size_logical.w as i32,
+                        scale_f64,
+                        &bar_info,
+                    ));
+                }
                 match smithay::desktop::space::render_output(
                     output,
                     renderer,
@@ -129,7 +148,7 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
                     1.0,
                     0,
                     [&state.space],
-                    &borders,
+                    &custom,
                     damage_tracker,
                     CLEAR,
                 ) {
@@ -176,7 +195,7 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
 }
 
 /// Builds one solid-color border element per mapped tile.
-fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<SolidColorRenderElement> {
+fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<KatnipElements<GlesRenderer>> {
     let bw = state.layout.border_width;
     let mut elements = Vec::new();
 
@@ -202,13 +221,13 @@ fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<SolidColorRenderEle
             BORDER_UNFOCUSED
         };
 
-        elements.push(SolidColorRenderElement::new(
+        elements.push(KatnipElements::Solid(SolidColorRenderElement::new(
             Id::new(),
             rect,
             CommitCounter::default(),
             color,
             Kind::Unspecified,
-        ));
+        )));
     }
 
     elements

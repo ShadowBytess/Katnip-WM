@@ -15,10 +15,18 @@ use serde::Deserialize;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub general: General,
+    pub bar: Bar,
     pub env: BTreeMap<String, String>,
     /// Raw keybind entries in declaration order: chord spec -> action string.
     pub keybinds: Vec<(String, String)>,
     pub autostart: Vec<String>,
+}
+
+/// `[bar]` section: built-in status bar settings.
+#[derive(Debug, Clone)]
+pub struct Bar {
+    pub enabled: bool,
+    pub height: i32,
 }
 
 /// `[general]` section: layout metrics and ecosystem programs.
@@ -37,6 +45,8 @@ pub struct General {
 struct ConfigRaw {
     #[serde(default)]
     general: GeneralRaw,
+    #[serde(default)]
+    bar: BarRaw,
     #[serde(default)]
     env: BTreeMap<String, String>,
     #[serde(default)]
@@ -58,6 +68,13 @@ struct GeneralRaw {
 #[serde(deny_unknown_fields)]
 struct AutostartRaw {
     exec: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct BarRaw {
+    enabled: Option<bool>,
+    height: Option<i32>,
 }
 
 impl Config {
@@ -100,6 +117,18 @@ impl Config {
             cfg.general.terminal = t;
         }
 
+        if let Some(bar) = raw.bar.enabled {
+            cfg.bar.enabled = bar;
+        }
+        if let Some(h) = raw.bar.height {
+            if !(16..=64).contains(&h) {
+                return Err(ConfigError::Validation(format!(
+                    "bar.height must be between 16 and 64, got {h}"
+                )));
+            }
+            cfg.bar.height = h;
+        }
+
         cfg.env = raw.env;
         // Preserve TOML map ordering deterministically (BTreeMap already
         // sorts; re-collect into a stable vec).
@@ -117,6 +146,10 @@ impl Config {
                 inner_gap: 8,
                 border_width: 2,
                 terminal: "lumiterm".into(),
+            },
+            bar: Bar {
+                enabled: true,
+                height: 28,
             },
             env: BTreeMap::from([
                 ("SHELL".to_string(), "/usr/bin/lush".to_string()),
@@ -219,6 +252,11 @@ border_width = 2
 
 # Program launched by the "terminal" action.
 terminal = "lumiterm"
+
+# Built-in status bar.
+[bar]
+enabled = true
+height = 28
 
 # Environment variables set for autostart programs.
 [env]

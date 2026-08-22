@@ -108,6 +108,8 @@ pub struct Katnip {
     pub layout: LayoutMetrics,
     /// Terminal program used by the `terminal` action.
     pub terminal: String,
+    /// Built-in status bar (owns textures; render via [`Katnip::bar`]).
+    pub bar: crate::bar::Bar,
 }
 
 impl Katnip {
@@ -163,6 +165,7 @@ impl Katnip {
                 border_width: config.general.border_width,
             },
             terminal: config.general.terminal.clone(),
+            bar: crate::bar::Bar::new(config.bar.enabled, config.bar.height),
         })
     }
 
@@ -200,6 +203,24 @@ impl Katnip {
     /// The focused window of the active workspace.
     pub fn focused_window(&self) -> Option<Window> {
         self.ws().focused.clone()
+    }
+
+    /// Title of the focused window, if any.
+    pub fn focused_title(&self) -> Option<String> {
+        let surface = self.ws().focused.as_ref()?.toplevel()?.wl_surface().clone();
+        Some(
+            smithay::wayland::compositor::with_states(&surface, |states| {
+                states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .expect("toplevel surface data")
+                    .lock()
+                    .expect("toplevel surface data lock")
+                    .title
+                    .clone()
+            })
+            .unwrap_or_default(),
+        )
     }
 
     // -- window lifecycle -------------------------------------------------
@@ -308,11 +329,12 @@ impl Katnip {
         };
 
         let m = self.layout;
+        let bar_reserve = if self.bar.enabled { self.bar.height } else { 0 };
         let usable = Rect::new(
             output_geo.loc.x + m.outer_gap,
-            output_geo.loc.y + m.outer_gap,
+            output_geo.loc.y + m.outer_gap + bar_reserve,
             (output_geo.size.w - 2 * m.outer_gap).max(0),
-            (output_geo.size.h - 2 * m.outer_gap).max(0),
+            (output_geo.size.h - 2 * m.outer_gap - bar_reserve).max(0),
         );
 
         let active = self.active_workspace;

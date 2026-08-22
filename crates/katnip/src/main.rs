@@ -1,11 +1,13 @@
 //! Katnip: a Hyprland-inspired Wayland compositor written in Rust.
 
+mod bar;
 mod binds;
 mod grabs;
 mod handlers;
 mod input;
 mod output;
 mod state;
+mod text;
 
 use std::error::Error;
 use std::sync::Arc;
