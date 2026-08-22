@@ -15,6 +15,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 bitflags.workspace = true
 katnip-backend = { path = "../katnip-backend" }
+katnip-config = { path = "../katnip-config" }
 katnip-core = { path = "../katnip-core" }
 smithay.workspace = true
 tracing.workspace = true

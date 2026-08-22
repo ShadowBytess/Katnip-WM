@@ -14,7 +14,7 @@ use smithay::reexports::calloop::EventLoop;
 use smithay::utils::{Point, Rectangle, Scale, Size, Transform};
 use tracing::{debug, error, info, warn};
 
-use crate::state::{BORDER_WIDTH, CalloopData, Katnip};
+use crate::state::{CalloopData, Katnip};
 
 /// Katnip accent teal for the focused tile border.
 const BORDER_FOCUSED: Color32F = Color32F::new(0.30, 0.85, 0.70, 1.0);
@@ -177,7 +177,7 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
 
 /// Builds one solid-color border element per mapped tile.
 fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<SolidColorRenderElement> {
-    let bw = BORDER_WIDTH;
+    let bw = state.layout.border_width;
     let mut elements = Vec::new();
 
     for window in state.active_windows() {
@@ -190,7 +190,7 @@ fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<SolidColorRenderEle
         }
 
         // The border element covers the full tile rect; client content sits
-        // inset by BORDER_WIDTH on every side.
+        // inset by the configured border width on every side.
         let rect = Rectangle::<i32, smithay::utils::Physical>::new(
             Point::from((location.x - bw, location.y - bw)).to_physical_precise_round(scale),
             Size::from((size.w + 2 * bw, size.h + 2 * bw)).to_physical_precise_round(scale),

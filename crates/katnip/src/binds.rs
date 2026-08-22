@@ -1,36 +1,8 @@
-//! Default keybind table and keysym resolution.
-//!
-//! M3 will replace the hardcoded defaults with TOML-sourced binds; the
-//! resolution layer (chord spec -> raw xkb keysym) stays.
+//! Keybind resolution: chord spec -> raw xkb keysym lookup table.
 
-use katnip_core::keybinds::{Action, KeybindTable, Mods};
 use std::collections::HashMap;
 
-use crate::state::WORKSPACE_COUNT;
-
-/// The built-in, Hyprland-flavored default binds.
-pub fn default_table() -> KeybindTable {
-    let mut table = KeybindTable::new();
-    let mut bind = |spec: &str, action: Action| {
-        table
-            .insert(spec, action)
-            .expect("default binds use valid specs");
-    };
-
-    bind("SUPER+Return", Action::Exec("terminal".into()));
-    bind("SUPER+Q", Action::CloseFocused);
-    bind("SUPER+F", Action::ToggleFloating);
-    bind("SUPER+SHIFT+E", Action::Quit);
-    for i in 0..WORKSPACE_COUNT {
-        bind(&format!("SUPER+{}", i + 1), Action::FocusWorkspace(i));
-        bind(
-            &format!("SUPER+SHIFT+{}", i + 1),
-            Action::MoveToWorkspace(i),
-        );
-    }
-
-    table
-}
+use katnip_core::keybinds::{Action, KeybindTable, Mods};
 
 /// A lookup-ready table: raw xkb keysym + modifiers -> action.
 pub struct ResolvedBinds {
@@ -55,6 +27,10 @@ impl ResolvedBinds {
     pub fn lookup(&self, mods: &Mods, raw_keysym: u32) -> Option<&Action> {
         self.by_chord.get(&(*mods, raw_keysym))
     }
+
+    pub fn len(&self) -> usize {
+        self.by_chord.len()
+    }
 }
 
 /// Resolves an xkb keysym name ("return", "1", "q") to its raw value.
@@ -62,4 +38,38 @@ fn resolve_keysym(name: &str) -> Option<u32> {
     use xkbcommon::xkb::{KEYSYM_CASE_INSENSITIVE, keysym_from_name};
     let sym = keysym_from_name(name, KEYSYM_CASE_INSENSITIVE);
     (sym.raw() != 0).then_some(sym.raw())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_default_chords() {
+        let mut table = KeybindTable::new();
+        table
+            .insert("SUPER+Return", Action::Exec("term".into()))
+            .expect("valid");
+        table
+            .insert("SUPER+q", Action::CloseFocused)
+            .expect("valid");
+
+        let resolved = ResolvedBinds::build(&table);
+        assert_eq!(resolved.len(), 2);
+
+        // Raw keysyms: Return = 0xff0d, q = 'q' as u32.
+        let logo = Mods {
+            logo: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            resolved.lookup(&logo, 0xff0d),
+            Some(&Action::Exec("term".into()))
+        );
+        assert_eq!(
+            resolved.lookup(&logo, b'q' as u32),
+            Some(&Action::CloseFocused)
+        );
+        assert_eq!(resolved.lookup(&logo, 0), None);
+    }
 }

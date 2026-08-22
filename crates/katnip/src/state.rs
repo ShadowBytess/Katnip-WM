@@ -25,14 +25,16 @@ use smithay::wayland::shm::ShmState;
 use smithay::wayland::socket::ListeningSocketSource;
 use tracing::{debug, info, warn};
 
-/// Outer margin between screen edges and the tiled area (logical px).
-pub const OUTER_GAP: i32 = 8;
-/// Gap between adjacent tiles (logical px).
-pub const INNER_GAP: i32 = 8;
-/// Border thickness drawn around each tile (logical px).
-pub const BORDER_WIDTH: i32 = 2;
 /// Number of virtual workspaces (1-9, Hyprland style).
 pub const WORKSPACE_COUNT: usize = 9;
+
+/// Layout metrics from config, applied at runtime.
+#[derive(Debug, Clone, Copy)]
+pub struct LayoutMetrics {
+    pub outer_gap: i32,
+    pub inner_gap: i32,
+    pub border_width: i32,
+}
 
 /// The xdg_toplevel state bit used for keyboard-focus indication.
 const ACTIVATED: xdg_toplevel::State = xdg_toplevel::State::Activated;
@@ -102,6 +104,10 @@ pub struct Katnip {
     pub seat: Seat<Self>,
     /// Resolved keybind table (chord -> action).
     pub binds: Arc<crate::binds::ResolvedBinds>,
+    /// Layout metrics from config.
+    pub layout: LayoutMetrics,
+    /// Terminal program used by the `terminal` action.
+    pub terminal: String,
 }
 
 impl Katnip {
@@ -109,6 +115,7 @@ impl Katnip {
         event_loop: &mut EventLoop<CalloopData>,
         display: Display<Self>,
         binds: Arc<crate::binds::ResolvedBinds>,
+        config: &katnip_config::Config,
     ) -> anyhow::Result<Self> {
         let start_time = Instant::now();
         let dh = display.handle();
@@ -150,6 +157,12 @@ impl Katnip {
             popups,
             seat,
             binds,
+            layout: LayoutMetrics {
+                outer_gap: config.general.outer_gap,
+                inner_gap: config.general.inner_gap,
+                border_width: config.general.border_width,
+            },
+            terminal: config.general.terminal.clone(),
         })
     }
 
@@ -294,11 +307,12 @@ impl Katnip {
             return;
         };
 
+        let m = self.layout;
         let usable = Rect::new(
-            output_geo.loc.x + OUTER_GAP,
-            output_geo.loc.y + OUTER_GAP,
-            (output_geo.size.w - 2 * OUTER_GAP).max(0),
-            (output_geo.size.h - 2 * OUTER_GAP).max(0),
+            output_geo.loc.x + m.outer_gap,
+            output_geo.loc.y + m.outer_gap,
+            (output_geo.size.w - 2 * m.outer_gap).max(0),
+            (output_geo.size.h - 2 * m.outer_gap).max(0),
         );
 
         let active = self.active_workspace;
@@ -307,7 +321,7 @@ impl Katnip {
             .iter()
             .filter(|t| !t.floating)
             .count();
-        let rects = layout::dwindle(usable, tiled_count, INNER_GAP);
+        let rects = layout::dwindle(usable, tiled_count, m.inner_gap);
         debug!(
             output_geo = ?(output_geo.size.w, output_geo.size.h),
             ws = active + 1,
@@ -342,7 +356,7 @@ impl Katnip {
                 let Some(tile_rect) = rect_iter.next() else {
                     continue;
                 };
-                let inner = tile_rect.shrink(BORDER_WIDTH);
+                let inner = tile_rect.shrink(m.border_width);
 
                 let Some(toplevel) = window.toplevel() else {
                     continue;
@@ -505,8 +519,8 @@ impl Katnip {
             let w = if size.w > 0 { size.w } else { 640 };
             let h = if size.h > 0 { size.h } else { 480 };
             let clamped = Point::from((
-                (loc.x as i32 - w / 2).max(OUTER_GAP),
-                (loc.y as i32 - h / 2).max(OUTER_GAP),
+                (loc.x as i32 - w / 2).max(self.layout.outer_gap),
+                (loc.y as i32 - h / 2).max(self.layout.outer_gap),
             ));
             self.ws_mut().tiles[pos].float_loc = Some(clamped);
         } else {
@@ -584,16 +598,14 @@ impl Katnip {
         }
     }
 
-    /// Demo terminal launcher until config-driven exec lands in M3.
+    /// Launches the configured terminal, falling back to common ones.
     pub fn spawn_terminal(&mut self) {
-        let candidates: Vec<String> = std::env::var("KATNIP_TERMINAL")
-            .map(|t| vec![t])
-            .unwrap_or_else(|_| {
-                ["lumiterm", "foot", "alacritty", "kitty"]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            });
+        let mut candidates = vec![self.terminal.clone()];
+        if let Ok(env_term) = std::env::var("KATNIP_TERMINAL") {
+            candidates.insert(0, env_term);
+        }
+        candidates.extend(["foot", "alacritty", "kitty"].iter().map(|s| s.to_string()));
+        candidates.dedup();
         for term in candidates {
             match Command::new(&term).spawn() {
                 Ok(child) => {

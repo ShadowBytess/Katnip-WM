@@ -8,6 +8,10 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+katnip-core = { path = "../katnip-core" }
+serde = { version = "1", features = ["derive"] }
+thiserror.workspace = true
+toml = "0.9"
 
 [lints]
 workspace = true
