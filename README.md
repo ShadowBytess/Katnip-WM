@@ -56,4 +56,4 @@ pointer events are echoed to the log at debug level. Close the window to exit.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](https://github.com/ShadowBytess/Katnip-WM/blob/main/LICENSE)
