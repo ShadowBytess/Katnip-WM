@@ -22,6 +22,7 @@ katnip-core = { path = "../katnip-core" }
 smithay.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde_json.workspace = true
 xkbcommon.workspace = true
 
 [lints]

@@ -5,6 +5,7 @@ mod binds;
 mod grabs;
 mod handlers;
 mod input;
+mod ipc;
 mod output;
 mod state;
 mod text;
@@ -77,6 +78,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         data.state.socket_name.display()
     );
 
+    let ipc_socket = ipc::init_ipc(
+        &event_loop.handle(),
+        &data.state.socket_name.to_string_lossy(),
+    )?;
+
     // Autostart runs once the socket is up so children connect to Katnip.
     for cmd in &config.autostart {
         spawn_autostart(cmd);
@@ -88,6 +94,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let _ = data.state.display_handle.flush_clients();
     })?;
 
+    ipc::cleanup(&ipc_socket);
     info!("Katnip exited cleanly");
     Ok(())
 }

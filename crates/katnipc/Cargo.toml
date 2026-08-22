@@ -12,6 +12,9 @@ name = "katnipc"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
+katnip-core = { path = "../katnip-core" }
 
 [lints]
 workspace = true
+

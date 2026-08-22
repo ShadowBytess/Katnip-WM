@@ -68,6 +68,17 @@ impl Tile {
     }
 }
 
+/// IPC-facing snapshot of one managed window.
+pub struct WindowEntry {
+    pub address: String,
+    pub title: Option<String>,
+    pub class: Option<String>,
+    pub floating: bool,
+    pub workspace: usize,
+    pub mapped: bool,
+    pub focused: bool,
+}
+
 #[derive(Default)]
 struct WorkspaceData {
     tiles: Vec<Tile>,
@@ -203,6 +214,56 @@ impl Katnip {
     /// The focused window of the active workspace.
     pub fn focused_window(&self) -> Option<Window> {
         self.ws().focused.clone()
+    }
+
+    /// Serializable view of every tracked window (for IPC).
+    pub fn all_windows(&self) -> impl Iterator<Item = WindowEntry> + '_ {
+        self.workspaces
+            .iter()
+            .enumerate()
+            .flat_map(move |(ws_idx, ws)| {
+                ws.tiles
+                    .iter()
+                    .map(move |tile| self.window_entry_of(tile, ws_idx))
+            })
+    }
+
+    /// Serializable view of a single window.
+    pub fn window_entry(&self, window: &Window) -> Option<WindowEntry> {
+        for (ws_idx, ws) in self.workspaces.iter().enumerate() {
+            if let Some(tile) = ws.tiles.iter().find(|t| &t.window == window) {
+                return Some(self.window_entry_of(tile, ws_idx));
+            }
+        }
+        None
+    }
+
+    fn window_entry_of(&self, tile: &Tile, workspace: usize) -> WindowEntry {
+        let surface = tile.surface().cloned();
+        // Stable per-window identity for IPC consumers.
+        let address = format!("0x{:x}", std::ptr::from_ref(&tile.window) as usize);
+        let (title, class) = surface
+            .map(|s| {
+                smithay::wayland::compositor::with_states(&s, |states| {
+                    let data = states
+                        .data_map
+                        .get::<XdgToplevelSurfaceData>()
+                        .expect("toplevel surface data")
+                        .lock()
+                        .expect("toplevel surface data lock");
+                    (data.title.clone(), data.app_id.clone())
+                })
+            })
+            .unwrap_or((None, None));
+        WindowEntry {
+            address,
+            title,
+            class,
+            floating: tile.floating,
+            workspace,
+            mapped: workspace == self.active_workspace,
+            focused: self.workspaces[workspace].focused.as_ref() == Some(&tile.window),
+        }
     }
 
     /// Title of the focused window, if any.
