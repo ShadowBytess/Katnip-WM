@@ -4,6 +4,7 @@ mod bar;
 mod binds;
 mod grabs;
 mod handlers;
+mod hardware_mode;
 mod input;
 mod ipc;
 mod output;
@@ -87,6 +88,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    let result = match hardware_mode::select_backend() {
+        hardware_mode::BackendChoice::Drm => {
+            hardware_mode::run_drm(&config, resolved_binds, Some(plugin_host), native_plugins)
+        }
+        hardware_mode::BackendChoice::Nested => {
+            run_nested(config, resolved_binds, Some(plugin_host), native_plugins)
+        }
+    };
+    result.map_err(Into::into)
+}
+
+/// The original nested-winit development path.
+fn run_nested(
+    config: katnip_config::Config,
+    resolved_binds: std::sync::Arc<binds::ResolvedBinds>,
+    plugin_host: Option<katnip_plugins::script::ScriptHost>,
+    native_plugins: Vec<katnip_plugins::native::NativePlugin>,
+) -> anyhow::Result<()> {
     let mut event_loop: EventLoop<CalloopData> = EventLoop::try_new()?;
     let display: Display<Katnip> = Display::new()?;
     let display_handle = display.handle();
@@ -96,8 +115,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         display,
         resolved_binds,
         &config,
-        Some(plugin_host),
+        plugin_host,
         native_plugins,
+        None,
     )?;
     let mut data = CalloopData {
         state,

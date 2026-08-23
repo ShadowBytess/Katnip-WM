@@ -7,12 +7,18 @@ Luminous ecosystem alongside [Lush](https://github.com/ShadowBytess/Lush)
 emulator), and [Luminousity](https://github.com/ShadowBytess/Luminousity)
 (text editor).
 
-## Status: v0.1.0-alpha - working nested compositor
+## Status: nested sessions are stable; hardware sessions land in M8
 
 Katnip tiles real windows, manages workspaces, floats, keybinds, a status
-bar, IPC, and loads both Rhai and native plugins. It runs **nested** inside
-your existing Wayland/X11 session for development; hardware DRM/libinput
-sessions are the next major milestone.
+bar, IPC, and loads both Rhai and native plugins.
+
+Two run modes:
+
+- **Nested** (default): runs as a window inside your current session — the
+  daily development loop.
+- **Hardware** (`--drm` or `KATNIP_BACKEND=drm`): drives DRM/KMS outputs,
+  libinput devices, and a logind/seatd session directly. Alpha quality —
+  single GPU, software dot cursor, continuous repaint.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -29,20 +35,20 @@ sessions are the next major milestone.
 
 - **Dwindling tiling** (Hyprland-style BSP) with configurable outer/inner
   gaps and per-window borders; layout math is pure and unit-tested
-- **9 workspaces** - `SUPER+1..9` to focus, `SUPER+SHIFT+1..9` to send a
+- **9 workspaces** — `SUPER+1..9` to focus, `SUPER+SHIFT+1..9` to send a
   window there
-- **Floating layer** - `SUPER+F` toggles; floats keep position, stack above
+- **Floating layer** — `SUPER+F` toggles; floats keep position, stack above
   tiles, and drag/resize freely
-- **Mouse** - click-to-focus, `SUPER+LMB` drag-move (auto-floats tiled
+- **Mouse** — click-to-focus, `SUPER+LMB` drag-move (auto-floats tiled
   windows), `SUPER+RMB` quadrant resize
-- **Built-in status bar** - workspace indicators, focused title, clock;
+- **Built-in status bar** — workspace indicators, focused title, clock;
   rendered directly into the compositor's render pass
 - **TOML config** at `~/.config/katnip/katnip.conf.toml`, auto-generated
   and documented on first run
 - **IPC control socket** + `katnipc` CLI (`hyprctl` equivalent)
-- **Hybrid plugin system** - sandboxed Rhai scripts and native `.so`
+- **Hybrid plugin system** — sandboxed Rhai scripts and native `.so`
   libraries behind a versioned C ABI
-- **Ecosystem defaults** - LumiTerm is the default terminal, Luminousity
+- **Ecosystem defaults** — LumiTerm is the default terminal, Luminousity
   opens inside it via `SUPER+E`, children get `SHELL=/usr/bin/lush`
 
 ## Building & running (CachyOS/Arch)
@@ -54,7 +60,7 @@ rustup default stable
 cargo build --release
 ```
 
-Run nested inside your current session:
+### Nested (development)
 
 ```bash
 ./target/release/katnip          # or: cargo run -p katnip
@@ -64,6 +70,20 @@ RUST_LOG=debug ./target/debug/katnip   # verbose input/layout logging
 A window opens running Katnip. Launch clients against it with
 `WAYLAND_DISPLAY=<name> <app>` using the name Katnip logs at startup, or
 just press `SUPER+Enter` inside Katnip to spawn your terminal.
+
+### Hardware session (alpha)
+
+From a TTY (not inside another compositor), with your user in the `seat`
+group or seatd/logind active:
+
+```bash
+sudo systemctl enable --now seatd
+sudo usermod -aG seat $USER   # re-login after this
+KATNIP_BACKEND=drm ./target/release/katnip
+```
+
+Once stable, install the package (`packaging/PKGBUILD`) and pick **Katnip**
+from your display manager; it launches `katnip --drm`.
 
 ### Default keybinds
 
@@ -129,7 +149,7 @@ The socket lives at `$XDG_RUNTIME_DIR/katnip/<wayland-display>.sock`;
 
 Plugins live in `~/.config/katnip/plugins/`. Two flavors share one contract:
 
-**Rhai scripts** (`*.rhai`) - sandboxed, no file/network access, CPU-capped:
+**Rhai scripts** (`*.rhai`) — sandboxed, no file/network access, CPU-capped:
 
 ```rhai
 katnip.log("plugin loaded");
@@ -144,7 +164,7 @@ fn on_workspace_switch(id) {
 }
 ```
 
-**Native libraries** (`*.so`) - export `katnip_plugin_abi()` returning the
+**Native libraries** (`*.so`) — export `katnip_plugin_abi()` returning the
 host's ABI version and receive a C API table in `katnip_plugin_init()`. See
 `examples/plugins/native-example/`. The loader refuses ABI mismatches; a
 broken `.so` is reported and skipped, never fatal.
@@ -165,16 +185,17 @@ See `examples/plugins/hello.rhai` for a runnable script example.
 
 ## Roadmap
 
-- [x] M0 - workspace scaffolding, nested backend, render loop
-- [x] M1 - xdg_shell windows, dwindling tiling, gaps + borders
-- [x] M2 - keybind engine, workspaces, floating, mouse grabs
-- [x] M3 - TOML config, autostart, ecosystem defaults
-- [x] M4 - built-in status bar
-- [x] M5 - IPC socket + `katnipc`
-- [x] M6 - hybrid plugin system (Rhai + native `.so`)
-- [x] M7 - polish: screenshots (wlr-screencopy), idle protocols
-- [ ] M8 - real session: DRM/udev/libinput backend, seatd/logind,
-      display-manager entry, AUR packaging
+- [x] M0 — workspace scaffolding, nested backend, render loop
+- [x] M1 — xdg_shell windows, dwindling tiling, gaps + borders
+- [x] M2 — keybind engine, workspaces, floating, mouse grabs
+- [x] M3 — TOML config, autostart, ecosystem defaults
+- [x] M4 — built-in status bar
+- [x] M5 — IPC socket + `katnipc`
+- [x] M6 — hybrid plugin system (Rhai + native `.so`)
+- [x] M7 — polish pass: xdg-decoration, focus refill, docs
+- [x] M8 — hardware sessions: DRM/udev/libinput/libseat backend,
+      `--drm` flag, session desktop entry, PKGBUILD (alpha)
+- [ ] Post-M8: multi-GPU, xcursor pipeline, screenshots, idle/lock protocols
 
 ## License
 

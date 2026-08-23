@@ -27,6 +27,11 @@ const CLEAR: Color32F = Color32F::new(0.086, 0.106, 0.098, 1.0);
 
 type GraphicsBackend = WinitGraphicsBackend<KatnipRenderer>;
 
+/// Shared startup log line (both backends).
+pub fn info_listening(socket: &str) {
+    tracing::info!("listening on WAYLAND_DISPLAY={socket}");
+}
+
 /// Creates the nested output and inserts the winit backend as a calloop
 /// source; the graphics backend is captured inside the source closure.
 pub fn init_winit(
@@ -195,6 +200,14 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
 }
 
 /// Builds one solid-color border element per mapped tile.
+/// Public alias for hardware-mode rendering.
+pub(crate) fn border_elements_pub(
+    state: &Katnip,
+    scale: Scale<f64>,
+) -> Vec<KatnipElements<GlesRenderer>> {
+    border_elements(state, scale)
+}
+
 fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<KatnipElements<GlesRenderer>> {
     let bw = state.layout.border_width;
     let mut elements = Vec::new();

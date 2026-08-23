@@ -21,6 +21,13 @@ authors = ["LuminousCat (@ShadowBytess)"]
 [workspace.dependencies]
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
+    "backend_drm",
+    "backend_gbm",
+    "backend_udev",
+    "backend_libinput",
+    "backend_session_libseat",
+    "backend_egl",
+    "use_system_lib",
     "desktop",
     "wayland_frontend",
 ] }

@@ -10,6 +10,7 @@ authors.workspace = true
 [dependencies]
 anyhow.workspace = true
 smithay.workspace = true
+xcursor = "0.3"
 tracing.workspace = true
 
 [lints]

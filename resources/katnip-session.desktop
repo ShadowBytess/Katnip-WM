@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Katnip
+Comment=A Hyprland-inspired Wayland compositor
+Exec=katnip --drm
+TryExec=katnip
+Type=Application
+DesktopNames=Katnip
+Keywords=tiling;window;manager;wayland;

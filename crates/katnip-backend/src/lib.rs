@@ -1,9 +1,10 @@
 //! Display/input backend layer for Katnip.
 //!
-//! Currently exposes the nested winit backend used for development inside an
-//! existing Wayland/X11 session. Hardware DRM/libinput/udev backends are
-//! added in a later milestone (M8) behind the same entry point.
+//! Two backends share one entry point shape:
+//! - [`nested`]: winit window inside an existing session (development)
+//! - [`hardware`]: DRM/KMS + udev + libinput + libseat (real sessions)
 
+pub mod hardware;
 pub mod nested;
 
 pub use nested::{NestedBackend, init_nested};

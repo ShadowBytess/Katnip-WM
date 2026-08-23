@@ -9,6 +9,7 @@ use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
 };
+use smithay::wayland::dmabuf::{DmabufHandler, DmabufState};
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{delegate_compositor, delegate_shm};
 
@@ -56,6 +57,34 @@ impl ShmHandler for Katnip {
 
 delegate_compositor!(Katnip);
 delegate_shm!(Katnip);
+smithay::delegate_dmabuf!(Katnip);
+
+impl DmabufHandler for Katnip {
+    fn dmabuf_state(&mut self) -> &mut DmabufState {
+        &mut self.dmabuf_state
+    }
+
+    fn dmabuf_imported(
+        &mut self,
+        _global: &smithay::wayland::dmabuf::DmabufGlobal,
+        dmabuf: smithay::backend::allocator::dmabuf::Dmabuf,
+        notifier: smithay::wayland::dmabuf::ImportNotifier,
+    ) {
+        let imported = self
+            .hw
+            .as_mut()
+            .map(|hw| {
+                use smithay::backend::renderer::ImportDma;
+                hw.renderer.import_dmabuf(&dmabuf, None).is_ok()
+            })
+            .unwrap_or(false);
+        if imported {
+            let _ = notifier.successful::<Katnip>();
+        } else {
+            notifier.failed();
+        }
+    }
+}
 
 /// Tracks popup commits and sends their initial configure.
 fn handle_popup_commit(popups: &mut PopupManager, surface: &WlSurface) {

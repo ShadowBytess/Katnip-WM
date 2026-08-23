@@ -1,0 +1,46 @@
+# Maintainer: LuminousCat <shadowbyte0321@gmail.com>
+# Katnip - Hyprland-inspired Wayland compositor written in Rust
+
+pkgname=katnip-wm
+pkgver=0.1.0alpha
+pkgrel=1
+pkgdesc="Hyprland-inspired Wayland compositor written in Rust (Smithay-based)"
+arch=('x86_64')
+url="https://github.com/ShadowBytess/Katnip-WM"
+license=('Apache-2.0')
+depends=(
+  'gcc-libs'
+  'libinput'
+  'libxkbcommon'
+  'mesa'          # GBM / EGL
+  'seatd'         # libseat
+  'systemd-libs'  # libudev
+  'wayland'
+)
+makedepends=('rust' 'cargo' 'base-devel' 'pkgconf' 'clang')
+optdepends=('foot: test Wayland terminal'
+            'alacritty: terminal')
+provides=('wayland-compositor')
+conflicts=('katnip-wm-git')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v${pkgver/alpha/-alpha}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-${pkgver/alpha/-alpha}"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo build --release --locked
+}
+
+check() {
+  cd "$pkgname-${pkgver/alpha/-alpha}"
+  cargo test --release --locked
+}
+
+package() {
+  cd "$pkgname-${pkgver/alpha/-alpha}"
+  install -Dm755 target/release/katnip   "$pkgdir/usr/bin/katnip"
+  install -Dm755 target/release/katnipc  "$pkgdir/usr/bin/katnipc"
+  install -Dm644 resources/katnip-session.desktop \
+    "$pkgdir/usr/share/wayland-sessions/katnip-session.desktop"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/katnip/README.md"
+}

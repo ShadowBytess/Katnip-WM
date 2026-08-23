@@ -11,13 +11,14 @@ use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::desktop::{PopupManager, Space, Window, WindowSurfaceType};
 use smithay::input::{Seat, SeatState};
 use smithay::output::Output;
-use smithay::reexports::calloop::{EventLoop, LoopSignal};
+use smithay::reexports::calloop::{EventLoop, LoopHandle, LoopSignal};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use smithay::utils::{IsAlive, Logical, Point, SERIAL_COUNTER, Size};
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
+use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::shell::xdg::{XdgShellState, XdgToplevelSurfaceData};
@@ -127,6 +128,12 @@ pub struct Katnip {
     pub bar: crate::bar::Bar,
     /// Rhai script plugins; `None` when none loaded.
     pub plugins: Option<katnip_plugins::script::ScriptHost>,
+    /// Hardware (DRM) backend state; `None` in nested mode.
+    pub hw: Option<crate::hardware_mode::HwData>,
+    /// dmabuf protocol state (hardware mode).
+    pub dmabuf_state: DmabufState,
+    /// Event-loop handle for timers; set by whichever backend runs.
+    pub loop_handle: Option<LoopHandle<'static, CalloopData>>,
     /// Native `.so` plugins; kept loaded for the process lifetime.
     #[allow(dead_code)]
     pub native_plugins: Vec<katnip_plugins::native::NativePlugin>,
@@ -140,6 +147,7 @@ impl Katnip {
         config: &katnip_config::Config,
         plugins: Option<katnip_plugins::script::ScriptHost>,
         native_plugins: Vec<katnip_plugins::native::NativePlugin>,
+        hw: Option<crate::hardware_mode::HwData>,
     ) -> anyhow::Result<Self> {
         let start_time = Instant::now();
         let dh = display.handle();
@@ -193,6 +201,9 @@ impl Katnip {
             bar: crate::bar::Bar::new(config.bar.enabled, config.bar.height),
             plugins,
             native_plugins,
+            hw,
+            dmabuf_state: DmabufState::new(),
+            loop_handle: None,
         })
     }
 

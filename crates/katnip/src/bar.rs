@@ -9,20 +9,24 @@ use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderE
 use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::utils::CommitCounter;
-use smithay::backend::renderer::{Color32F, Renderer};
+use smithay::backend::renderer::{Color32F, ImportDmaWl, ImportEgl, ImportMemWl, Renderer};
 use smithay::utils::{Point, Rectangle, Size, Transform};
 
 use crate::state::WORKSPACE_COUNT;
 use crate::text::TextEngine;
 
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
+#[allow(unused_imports)]
+use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 
 smithay::backend::renderer::element::render_elements! {
-    /// Custom compositor-drawn elements: window borders and bar content.
+    /// Custom compositor-drawn elements: borders and bar content.
     pub KatnipElements<R> where
-        R: Renderer;
+        R: Renderer + ImportMemWl + ImportEgl + ImportDmaWl;
+
     Solid = SolidColorRenderElement,
     Text = TextureRenderElement<R::TextureId>,
+    Window = WaylandSurfaceRenderElement<R>,
 }
 
 /// Bar background (slightly lifted from the clear color).
