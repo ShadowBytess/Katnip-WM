@@ -26,8 +26,8 @@ use smithay::wayland::shm::ShmState;
 use smithay::wayland::socket::ListeningSocketSource;
 use tracing::{debug, info, warn};
 
-/// Number of virtual workspaces (1-9, Hyprland style).
-pub const WORKSPACE_COUNT: usize = 9;
+/// Number of virtual workspaces (keys 1-9 and 0 = workspace 10).
+pub const WORKSPACE_COUNT: usize = 10;
 
 /// Layout metrics from config, applied at runtime.
 #[derive(Debug, Clone, Copy)]
@@ -555,8 +555,7 @@ impl Katnip {
 
     /// Switches the visible workspace, remapping clients as needed.
     pub fn switch_workspace(&mut self, idx: usize) {
-        assert!(idx < WORKSPACE_COUNT);
-        if idx == self.active_workspace {
+        if idx >= WORKSPACE_COUNT || idx == self.active_workspace {
             return;
         }
         debug!(
@@ -593,8 +592,7 @@ impl Katnip {
     /// Moves the focused window to another workspace (it disappears from
     /// view unless target == active).
     pub fn move_focused_to_workspace(&mut self, idx: usize) {
-        assert!(idx < WORKSPACE_COUNT);
-        if idx == self.active_workspace {
+        if idx >= WORKSPACE_COUNT || idx == self.active_workspace {
             return;
         }
         let Some(focused) = self.ws().focused.clone() else {

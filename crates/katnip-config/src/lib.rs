@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use katnip_core::keybinds::{Action, KeybindTable};
+
+/// Workspace count mirrored from the compositor (`state::WORKSPACE_COUNT`).
+pub const WORKSPACES: usize = 10;
 use serde::Deserialize;
 
 /// A loaded and validated configuration.
@@ -145,7 +148,7 @@ impl Config {
                 outer_gap: 8,
                 inner_gap: 8,
                 border_width: 2,
-                terminal: "lumiterm".into(),
+                terminal: "alacritty".into(),
             },
             bar: Bar {
                 enabled: true,
@@ -156,12 +159,31 @@ impl Config {
                 ("TERMINAL".to_string(), "lumiterm".to_string()),
             ]),
             keybinds: vec![
-                ("SUPER+Q".into(), "exec lumiterm".into()),
-                ("SUPER+E".into(), "exec lumiterm -e luminousity".into()),
+                ("SUPER+Q".into(), "exec alacritty".into()),
+                ("SUPER+E".into(), "exec alacritty -e opal".into()),
+                ("SUPER+S".into(), "exec oview".into()),
+                ("SUPER+B".into(), "exec waterfox".into()),
+                ("SUPER+SHIFT+T".into(), "exec alacritty -e fish".into()),
                 ("SUPER+C".into(), "close".into()),
+                (
+                    "Print".into(),
+                    "exec sh -c 'grim -g \"$(slurp)\" - | swappy -f -'".into(),
+                ),
                 ("SUPER+F".into(), "toggle-floating".into()),
                 ("SUPER+SHIFT+E".into(), "quit".into()),
-            ],
+            ]
+            .into_iter()
+            .chain((0..WORKSPACES).flat_map(|i| {
+                let key = if i == 9 { "0" } else { &(i + 1).to_string() };
+                vec![
+                    (format!("SUPER+{key}"), format!("workspace {}", i + 1)),
+                    (
+                        format!("SUPER+SHIFT+{key}"),
+                        format!("move-to-workspace {}", i + 1),
+                    ),
+                ]
+            }))
+            .collect(),
             autostart: Vec::new(),
         }
     }
@@ -251,7 +273,7 @@ inner_gap = 8
 border_width = 2
 
 # Program launched by the "terminal" action.
-terminal = "lumiterm"
+terminal = "alacritty"
 
 # Built-in status bar.
 [bar]
@@ -268,14 +290,18 @@ TERMINAL = "lumiterm"
 #   exec <command>        run command through sh -c
 #   close                 close focused window
 #   toggle-floating       flip focused window between tiled and floating
-#   workspace N           switch to workspace N (1-9)
-#   move-to-workspace N   send focused window to workspace N
+#   workspace N           switch to workspace N (1-10)
+#   move-to-workspace N   send focused window to workspace N (1-10)
 #   quit                  exit Katnip
 [keybinds]
-"SUPER+Q" = "exec lumiterm"
-"SUPER+E" = "exec lumiterm -e luminousity"
+"SUPER+Q" = "exec alacritty"
+"SUPER+E" = "exec alacritty -e opal"
+"SUPER+S" = "exec oview"
+"SUPER+B" = "exec waterfox"
+"SUPER+SHIFT+T" = "exec alacritty -e fish"
 "SUPER+C" = "close"
 "SUPER+F" = "toggle-floating"
+"Print" = "exec sh -c 'grim -g \"$(slurp)\" - | swappy -f -'"
 "SUPER+1" = "workspace 1"
 "SUPER+2" = "workspace 2"
 "SUPER+3" = "workspace 3"
@@ -285,6 +311,7 @@ TERMINAL = "lumiterm"
 "SUPER+7" = "workspace 7"
 "SUPER+8" = "workspace 8"
 "SUPER+9" = "workspace 9"
+"SUPER+0" = "workspace 10"
 "SUPER+SHIFT+1" = "move-to-workspace 1"
 "SUPER+SHIFT+2" = "move-to-workspace 2"
 "SUPER+SHIFT+3" = "move-to-workspace 3"
@@ -294,6 +321,7 @@ TERMINAL = "lumiterm"
 "SUPER+SHIFT+7" = "move-to-workspace 7"
 "SUPER+SHIFT+8" = "move-to-workspace 8"
 "SUPER+SHIFT+9" = "move-to-workspace 9"
+"SUPER+SHIFT+0" = "move-to-workspace 10"
 "SUPER+SHIFT+E" = "quit"
 
 # Commands run once at startup, through sh -c, after the Wayland socket is up.

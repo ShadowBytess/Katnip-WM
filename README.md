@@ -35,8 +35,8 @@ Two run modes:
 
 - **Dwindling tiling** (Hyprland-style BSP) with configurable outer/inner
   gaps and per-window borders; layout math is pure and unit-tested
-- **9 workspaces** — `SUPER+1..9` to focus, `SUPER+SHIFT+1..9` to send a
-  window there
+- **10 workspaces** — `SUPER+1..9,0` to focus, `SUPER+SHIFT+1..9,0` to send
+  a window there
 - **Floating layer** — `SUPER+F` toggles; floats keep position, stack above
   tiles, and drag/resize freely
 - **Mouse** — click-to-focus, `SUPER+LMB` drag-move (auto-floats tiled
@@ -89,15 +89,20 @@ from your display manager; it launches `katnip --drm`.
 
 | Chord | Action |
 |---|---|
-| `SUPER+Q` | launch terminal |
-| `SUPER+E` | Luminousity in LumiTerm |
+| `SUPER+Q` | launch terminal (alacritty) |
+| `SUPER+E` | opal file manager in alacritty |
+| `SUPER+S` | oview launcher |
+| `SUPER+B` | waterfox browser |
+| `SUPER+SHIFT+T` | fish shell in alacritty |
 | `SUPER+C` | close focused window |
 | `SUPER+F` | toggle floating |
-| `SUPER+1..9` | switch workspace |
-| `SUPER+SHIFT+1..9` | move window to workspace |
+| `Print` | screenshot region -> swappy (needs wlr-screencopy) |
+| `SUPER+1..9,0` | switch workspace |
+| `SUPER+SHIFT+1..9,0` | move window to workspace |
 | `SUPER+SHIFT+E` | quit Katnip |
 
-Mouse: click-to-focus, `SUPER+LMB` drag-move, `SUPER+RMB` resize.
+Defaults mirror the author's Hyprland keybind file. Mouse: click-to-focus,
+`SUPER+LMB` drag-move, `SUPER+RMB` resize.
 
 All binds live in `katnip.conf.toml` under `[keybinds]`.
 

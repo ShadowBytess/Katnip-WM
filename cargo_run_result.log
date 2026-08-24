@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/katnip`
+Error: failed to initialize winit backend: Failed to initialize an event loop
