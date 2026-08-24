@@ -702,12 +702,10 @@ fn refresh_interval(output: &Output) -> Duration {
 
 fn render_surface(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
     let scale_f64 = {
-        let hw = data.state.hw.as_ref().expect("hw present");
-        let surface = hw
-            .devices
-            .get(&node)
-            .and_then(|d| d.surfaces.get(&crtc))
-            .expect("surface present");
+        let Some(hw) = data.state.hw.as_ref() else { return };
+        let Some(surface) = hw.devices.get(&node).and_then(|d| d.surfaces.get(&crtc)) else {
+            return;
+        };
         surface.output.current_scale().fractional_scale()
     };
     let scale = Scale::from(scale_f64);
@@ -722,7 +720,7 @@ fn render_surface(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
         let bar_info = BarInfo::from_state(&data.state);
         if data.state.bar.enabled {
             let Katnip { bar, hw, .. } = &mut data.state;
-            let hw = hw.as_mut().expect("hw present");
+            let Some(hw) = hw.as_mut() else { return };
             let output = &hw
                 .devices
                 .get(&node)
@@ -780,12 +778,15 @@ fn render_surface(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
 
     // Render + queue.
     let queued = {
-        let hw = data.state.hw.as_mut().expect("hw present");
-        let surface = hw
+        let Some(hw) = data.state.hw.as_mut() else { return };
+        let Some(surface) = hw
             .devices
             .get_mut(&node)
             .and_then(|d| d.surfaces.get_mut(&crtc))
-            .expect("surface present");
+        else {
+            // Surface vanished between scheduling and now (hotplug race).
+            return;
+        };
         match surface
             .compositor
             .render_frame(&mut hw.renderer, &custom, CLEAR, FrameFlags::empty())
