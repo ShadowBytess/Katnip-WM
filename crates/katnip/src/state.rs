@@ -500,6 +500,7 @@ impl Katnip {
         }
 
         self.update_activated_states();
+        self.request_repaint_all();
     }
 
     /// Called on toplevel commits: records sizes and re-arranges on change.

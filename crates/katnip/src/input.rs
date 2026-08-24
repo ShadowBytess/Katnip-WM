@@ -86,6 +86,8 @@ impl Katnip {
                     },
                 );
                 pointer.frame(self);
+                // Software cursor follows the pointer only in DRM mode.
+                self.request_repaint_all();
             }
             InputEvent::PointerButton { event, .. } => {
                 let serial = SERIAL_COUNTER.next_serial();
@@ -136,6 +138,8 @@ impl Katnip {
                     },
                 );
                 pointer.frame(self);
+                // Focus ring / float placement changes.
+                self.request_repaint_all();
             }
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();

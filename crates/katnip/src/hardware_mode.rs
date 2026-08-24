@@ -42,6 +42,39 @@ use crate::state::{CalloopData, Katnip};
 const CLEAR: Color32F = Color32F::new(0.086, 0.106, 0.098, 1.0);
 /// Dot-cursor size (logical px).
 const CURSOR_DOT: i32 = 10;
+/// Retry cadence when a frame produced no damage (keeps the clock alive
+/// without spinning at refresh rate).
+const IDLE_RETRY: Duration = Duration::from_millis(250);
+
+impl Katnip {
+    /// Re-renders every live output immediately. Called when state changes
+    /// outside the vblank chain (pointer motion, layout changes, focus).
+    pub fn request_repaint_all(&mut self) {
+        if self.hw.is_none() {
+            return; // nested mode repaints via winit redraws
+        }
+        let Some(handle) = self.loop_handle.clone() else {
+            return;
+        };
+        let targets: Vec<(DrmNode, crtc::Handle)> = self
+            .hw
+            .as_ref()
+            .expect("hw present")
+            .devices
+            .iter()
+            .flat_map(|(node, ctx)| ctx.surfaces.keys().map(move |c| (*node, *c)))
+            .collect();
+        for (node, crtc) in targets {
+            let timer = Timer::immediate();
+            if let Err(err) = handle.insert_source(timer, move |_, _, data: &mut CalloopData| {
+                render_surface(data, node, crtc);
+                TimeoutAction::Drop
+            }) {
+                debug!(?err, "repaint kick failed");
+            }
+        }
+    }
+}
 /// Hardware cursor plane buffer size.
 fn cursor_size() -> Size<u32, smithay::utils::Buffer> {
     Size::from((64u32, 64u32))
@@ -693,16 +726,11 @@ fn schedule_repaint(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle, d
     }
 }
 
-fn refresh_interval(output: &Output) -> Duration {
-    output
-        .current_mode()
-        .map(|m| Duration::from_secs_f64(1_000f64 / m.refresh.max(1) as f64))
-        .unwrap_or(Duration::from_millis(16))
-}
-
 fn render_surface(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
     let scale_f64 = {
-        let Some(hw) = data.state.hw.as_ref() else { return };
+        let Some(hw) = data.state.hw.as_ref() else {
+            return;
+        };
         let Some(surface) = hw.devices.get(&node).and_then(|d| d.surfaces.get(&crtc)) else {
             return;
         };
@@ -778,7 +806,9 @@ fn render_surface(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
 
     // Render + queue.
     let queued = {
-        let Some(hw) = data.state.hw.as_mut() else { return };
+        let Some(hw) = data.state.hw.as_mut() else {
+            return;
+        };
         let Some(surface) = hw
             .devices
             .get_mut(&node)
@@ -813,17 +843,14 @@ fn render_surface(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
 
     send_frames(data, node, crtc);
 
-    // Keep the repaint chain alive regardless of damage this cycle.
-    let output_refresh = {
-        let hw = data.state.hw.as_ref().expect("hw present");
-        hw.devices
-            .get(&node)
-            .and_then(|d| d.surfaces.get(&crtc))
-            .map(|s| refresh_interval(&s.output))
-            .unwrap_or(Duration::from_millis(16))
-    };
-    let _ = queued;
-    schedule_repaint(data, node, crtc, output_refresh);
+    if queued {
+        // The vblank handler continues the chain (frame_finished -> repaint).
+    } else {
+        // No damage this cycle: back off instead of spinning at refresh
+        // rate. Explicit kicks (input, arrange) re-render on demand, and
+        // the slow retry keeps the bar clock alive.
+        schedule_repaint(data, node, crtc, IDLE_RETRY);
+    }
 }
 
 fn send_frames(data: &mut CalloopData, node: DrmNode, crtc: crtc::Handle) {
