@@ -89,13 +89,15 @@ from your display manager; it launches `katnip --drm`.
 
 | Chord | Action |
 |---|---|
-| `SUPER+Enter` | launch terminal |
+| `SUPER+Q` | launch terminal |
 | `SUPER+E` | Luminousity in LumiTerm |
-| `SUPER+Q` | close focused window |
+| `SUPER+C` | close focused window |
 | `SUPER+F` | toggle floating |
 | `SUPER+1..9` | switch workspace |
 | `SUPER+SHIFT+1..9` | move window to workspace |
 | `SUPER+SHIFT+E` | quit Katnip |
+
+Mouse: click-to-focus, `SUPER+LMB` drag-move, `SUPER+RMB` resize.
 
 All binds live in `katnip.conf.toml` under `[keybinds]`.
 

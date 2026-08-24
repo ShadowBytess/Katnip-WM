@@ -4,12 +4,12 @@
 use katnip_core::keybinds::{Action, Mods};
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
 };
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, Focus, GrabStartData, MotionEvent};
 use smithay::reexports::wayland_server::Resource;
-use smithay::utils::{Rectangle, SERIAL_COUNTER};
+use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use tracing::debug;
 
 use crate::grabs::{MoveSurfaceGrab, ResizeSurfaceGrab, edges_for_point};
@@ -56,8 +56,29 @@ impl Katnip {
                     self.execute_action(&action);
                 }
             }
-            InputEvent::PointerMotion { .. } => {
-                // winit delivers absolute motion; see below.
+            InputEvent::PointerMotion { event, .. } => {
+                // libinput (hardware) delivers relative motion.
+                let Some(pointer) = self.seat.get_pointer() else {
+                    return;
+                };
+                let delta = event.delta();
+                let candidate = pointer.current_location() + delta;
+                let pos = clamp_to_outputs(self, candidate);
+
+                let serial = SERIAL_COUNTER.next_serial();
+                let under = self.surface_under(pos);
+                pointer.motion(
+                    self,
+                    under,
+                    &MotionEvent {
+                        location: pos,
+                        serial,
+                        time: event.time_msec(),
+                    },
+                );
+                pointer.frame(self);
+                // Software cursor follows the pointer (DRM mode).
+                self.request_repaint_all();
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let Some(output) = self.space.outputs().next().cloned() else {
@@ -273,4 +294,32 @@ fn valid_grab_start(
         return None;
     }
     Some(start_data)
+}
+
+/// Clamps a pointer position to the union of all output geometries so the
+/// cursor cannot wander off into unmapped coordinate space.
+fn clamp_to_outputs(state: &Katnip, pos: Point<f64, Logical>) -> Point<f64, Logical> {
+    let mut bbox: Option<(f64, f64, f64, f64)> = None; // x1, y1, x2, y2
+    for output in state.space.outputs() {
+        if let Some(geo) = state.space.output_geometry(output) {
+            let (x1, y1) = (geo.loc.x as f64, geo.loc.y as f64);
+            let (x2, y2) = (x1 + geo.size.w as f64, y1 + geo.size.h as f64);
+            match &mut bbox {
+                Some((bx1, by1, bx2, by2)) => {
+                    *bx1 = bx1.min(x1);
+                    *by1 = by1.min(y1);
+                    *bx2 = bx2.max(x2);
+                    *by2 = by2.max(y2);
+                }
+                None => bbox = Some((x1, y1, x2, y2)),
+            }
+        }
+    }
+    let Some((bx1, by1, bx2, by2)) = bbox else {
+        return pos;
+    };
+    Point::from((
+        pos.x.clamp(bx1, (bx2 - 1.0).max(bx1)),
+        pos.y.clamp(by1, (by2 - 1.0).max(by1)),
+    ))
 }

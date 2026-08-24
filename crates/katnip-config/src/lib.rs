@@ -35,7 +35,7 @@ pub struct General {
     pub outer_gap: i32,
     pub inner_gap: i32,
     pub border_width: i32,
-    /// Program launched by the `terminal` action / SUPER+Return.
+    /// Program launched by the `terminal` action (SUPER+Q by default).
     pub terminal: String,
 }
 
@@ -156,9 +156,9 @@ impl Config {
                 ("TERMINAL".to_string(), "lumiterm".to_string()),
             ]),
             keybinds: vec![
-                ("SUPER+Return".into(), "exec lumiterm".into()),
+                ("SUPER+Q".into(), "exec lumiterm".into()),
                 ("SUPER+E".into(), "exec lumiterm -e luminousity".into()),
-                ("SUPER+Q".into(), "close".into()),
+                ("SUPER+C".into(), "close".into()),
                 ("SUPER+F".into(), "toggle-floating".into()),
                 ("SUPER+SHIFT+E".into(), "quit".into()),
             ],
@@ -272,9 +272,9 @@ TERMINAL = "lumiterm"
 #   move-to-workspace N   send focused window to workspace N
 #   quit                  exit Katnip
 [keybinds]
-"SUPER+Return" = "exec lumiterm"
+"SUPER+Q" = "exec lumiterm"
 "SUPER+E" = "exec lumiterm -e luminousity"
-"SUPER+Q" = "close"
+"SUPER+C" = "close"
 "SUPER+F" = "toggle-floating"
 "SUPER+1" = "workspace 1"
 "SUPER+2" = "workspace 2"
