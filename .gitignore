@@ -2,3 +2,4 @@
 *.swp
 .DS_Store
 examples/plugins/native-example/target/
+cargo_run_result.log

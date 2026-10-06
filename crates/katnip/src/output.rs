@@ -120,7 +120,7 @@ fn redraw(graphics: &mut GraphicsBackend, state: &mut Katnip) {
 
     let scale_f64 = output.current_scale().fractional_scale();
     let scale = Scale::from(scale_f64);
-    let mut custom = border_elements(state, scale);
+    let mut custom = Vec::new();
     let bar_info = crate::bar::BarInfo::from_state(state);
     let window_size_logical = graphics.window_size().to_f64().to_logical(scale);
 
@@ -216,17 +216,11 @@ fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<KatnipElements<Gles
         let Some(location) = state.space.element_location(window) else {
             continue;
         };
+
         let size = window.geometry().size;
-        if size.w <= 0 || size.h <= 0 {
+        if size.w <= 0 || size.h <= 0 || bw <= 0 {
             continue;
         }
-
-        // The border element covers the full tile rect; client content sits
-        // inset by the configured border width on every side.
-        let rect = Rectangle::<i32, smithay::utils::Physical>::new(
-            Point::from((location.x - bw, location.y - bw)).to_physical_precise_round(scale),
-            Size::from((size.w + 2 * bw, size.h + 2 * bw)).to_physical_precise_round(scale),
-        );
 
         let color = if state.focused_window().is_some_and(|f| &f == window) {
             BORDER_FOCUSED
@@ -234,13 +228,46 @@ fn border_elements(state: &Katnip, scale: Scale<f64>) -> Vec<KatnipElements<Gles
             BORDER_UNFOCUSED
         };
 
-        elements.push(KatnipElements::Solid(SolidColorRenderElement::new(
-            Id::new(),
-            rect,
-            CommitCounter::default(),
-            color,
-            Kind::Unspecified,
-        )));
+        let x = location.x;
+        let y = location.y;
+        let w = size.w;
+        let h = size.h;
+
+        // Top
+        let top = Rectangle::<i32, smithay::utils::Physical>::new(
+            Point::from((x - bw, y - bw)).to_physical_precise_round(scale),
+            Size::from((w + 2 * bw, bw)).to_physical_precise_round(scale),
+        );
+
+        // Bottom
+        let bottom = Rectangle::<i32, smithay::utils::Physical>::new(
+            Point::from((x - bw, y + h)).to_physical_precise_round(scale),
+            Size::from((w + 2 * bw, bw)).to_physical_precise_round(scale),
+        );
+
+        // Left
+        let left = Rectangle::<i32, smithay::utils::Physical>::new(
+            Point::from((x - bw, y)).to_physical_precise_round(scale),
+            Size::from((bw, h)).to_physical_precise_round(scale),
+        );
+
+        // Right
+        let right = Rectangle::<i32, smithay::utils::Physical>::new(
+            Point::from((x + w, y)).to_physical_precise_round(scale),
+            Size::from((bw, h)).to_physical_precise_round(scale),
+        );
+
+        for rect in [top, bottom, left, right] {
+            elements.push(KatnipElements::Solid(
+                SolidColorRenderElement::new(
+                    Id::new(),
+                    rect,
+                    CommitCounter::default(),
+                    color,
+                    Kind::Unspecified,
+                ),
+            ));
+        }
     }
 
     elements

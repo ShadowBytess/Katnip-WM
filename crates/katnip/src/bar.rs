@@ -83,7 +83,7 @@ impl Bar {
         // Background strip across the top.
         let rect = Rectangle::<i32, smithay::utils::Physical>::new(
             Point::from((0, 0)).to_physical_precise_round(scale),
-            Size::from((width_logical, self.height)).to_physical_precise_round(scale),
+            Size::from((width_logical, 28)).to_physical_precise_round(scale),
         );
         out.push(KatnipElements::Solid(SolidColorRenderElement::new(
             Id::new(),
@@ -192,6 +192,13 @@ impl Bar {
         let location = Point::from((x, y))
             .to_f64()
             .to_physical_precise_round(scale);
+        tracing::info!(
+    width_logical,
+    bar_height = 28,
+    scale,
+    ?rect,
+    "BAR RECT"
+);
         out.push(KatnipElements::Text(
             TextureRenderElement::from_texture_buffer(
                 location,
